@@ -126,6 +126,8 @@ type Lepton struct {
 	packet          [164]uint8 // one line is sent as a SPI packet.
 	goodFrames      int        // stats
 	duplicateFrames int
+	transferFails   int
+	lastFail        error
 	brokenPackets   int
 	syncFailures    int
 	dummyLines      int
@@ -144,11 +146,16 @@ func (l *Lepton) readLine() {
 	// Operation must complete within 32ms. Frames occur every 38.4ms. With SPI,
 	// write must occur as read is being done, just sent dummy data.
 	if err := l.spiBus.TransferAndRecieveData(l.packet[:]); err != nil {
-		l.brokenPackets++
+		l.transferFails++
 		l.currentLine = -1
+		if l.lastFail == nil {
+			fmt.Fprintf(os.Stderr, "\nI/O fail: %s\n\n", err)
+			l.lastFail = err
+		}
 		return
 	}
 
+	l.lastFail = nil
 	if (l.packet[0] & 0xf) == 0x0f {
 		// Discard packet. This happens as the bandwidth of SPI is larger than data
 		// rate.
@@ -288,7 +295,7 @@ func mainImpl() error {
 
 	for !interrupt.IsSet() {
 		// TODO(maruel): load variables via atomic.
-		fmt.Printf("%d frames %d duped %d badsync %d broken %d dummy\r", l.goodFrames, l.duplicateFrames, l.syncFailures, l.brokenPackets, l.dummyLines)
+		fmt.Printf("%d frames %d duped %d dummy %d badsync %d broken %d fail\r", l.goodFrames, l.duplicateFrames, l.dummyLines, l.syncFailures, l.brokenPackets, l.transferFails)
 		time.Sleep(time.Second)
 	}
 	fmt.Print("\n")
