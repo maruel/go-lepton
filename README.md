@@ -35,6 +35,10 @@ use a recent linux kernel:
     sudo rpi-update
     sudo shutdown -r now
 
+If `ls /dev/spi*` doesn't show up anything, visit
+http://www.raspberrypi.org/forums/viewtopic.php?p=675658#p675658 for advice with
+kernel 3.18.x.
+
 
 Installing
 ----------
