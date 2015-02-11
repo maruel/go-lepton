@@ -26,6 +26,9 @@
 //   p. 36-37 Ping and Status, implement first to ensure i²c works.
 //   p. 42-43 Telemetry enable.
 //   Radiometry is not documented (!?)
+//
+// Information about the Raspberry Pi SPI driver:
+//   http://elinux.org/RPi_SPI
 package main
 
 import (
@@ -242,9 +245,11 @@ func mainImpl() error {
 	}
 	defer embd.CloseSPI()
 
-	// Max rate is 20Mhz. Minimum usable rate is ~4Mhz to sustain framerate.
-	// Low rate is less likely to get electromagnetic interference and reduces
-	// unnecessary CPU consumption by reducing the number of dummy packets.
+	// Max rate supported by FLIR Lepton is 20Mhz. Minimum usable rate is ~4Mhz
+	// to sustain framerate.  Low rate is less likely to get electromagnetic
+	// interference and reduces unnecessary CPU consumption by reducing the
+	// number of dummy packets. spi_bcm2708 supports a limited number of
+	// frequencies so the actual value will differ. See http://elinux.org/RPi_SPI.
 	spiBus := embd.NewSPIBus(embd.SPIMode3, 0, 4000000, 8, 0)
 	defer spiBus.Close()
 

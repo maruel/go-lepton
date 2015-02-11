@@ -4,21 +4,43 @@ go-lepton
 Serves images taken on a FLIR Lepton connected to a Raspberry Pi SPI port to
 over HTTP.
 
+
+Accessing SPI without root
+--------------------------
+
 To be able to use the SPI port on the Raspberry Pi without root, run the
 following:
 
     sudo groupadd -f --system spi
     sudo adduser $USER spi
     echo 'SUBSYSTEM=="spidev", GROUP="spi"' | sudo tee --append /etc/udev/rules.d/90-spi.rules > /dev/null
+    sudo shutdown -r now
 
-Then reboot. Then connect the port as shown at
+Then connect the port as shown at
 https://github.com/PureEngineering/LeptonModule/wiki
+
+This removes the requirement of running random program as root just to access
+the SPI port.
+
+
+Updating Raspbian
+-----------------
+
+If using Raspbian, before playing with this project, make sure to update as
+described at http://www.raspberrypi.org/documentation/raspbian/updating.md to
+use a recent linux kernel:
+
+    sudo apt-get update
+    sudo apt-get upgrade
+    sudo rpi-update
+    sudo shutdown -r now
 
 
 Performance
 -----------
 
-Reading the SPI port currently saturate the CPU of a Raspberry Pi v1.
+Reading the SPI port currently saturate the CPU of a Raspberry Pi v1 running
+Raspbian.
 
     (pprof) top20
     21.23s of 24.38s total (87.08%)
@@ -48,3 +70,11 @@ Reading the SPI port currently saturate the CPU of a Raspberry Pi v1.
 
 Not sure how to improve the situation but this leaves absolutely no room for
 any computation.
+
+https://github.com/torvalds/linux/blob/master/drivers/spi/spi-bcm2835.c implies
+that the FIFO buffer is 16 bytes deep but the packets sent are 164 bytes, as
+required by the Lepton.
+http://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/tree/Documentation/spi/spidev
+implies it's not a requirement to use ioctl() for full duplex operation and a
+simple read() would be sufficent. Will be investigated later as the Lepton
+doesn't read any data through the SPI port, only via i²c.
