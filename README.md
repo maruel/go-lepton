@@ -36,6 +36,31 @@ use a recent linux kernel:
     sudo shutdown -r now
 
 
+Installing
+----------
+
+It's recommended to compile directly on the device. First, you'll need git:
+
+    sudo apt-get install git
+
+Then visit http://dave.cheney.net/unofficial-arm-tarballs and grab the right
+tarball, currently go1.4.linux-arm~multiarch-armv6-1.tar.gz. Extract it and
+setup your GOROOT and GOCODE environment. Then you should be up and ready to
+install the executable:
+
+    go get github.com/maruel/go-lepton
+
+Building go-lepton on the Raspberry Pi takes ~10s which is slow but still much
+faster than cross-compiling and transferring the files in. When hacking direclty
+on go-lepton, it's recommended to preinstall all libraries for maximum
+compilation performance.
+
+    cd $GOCODE/src
+    go install ./...
+
+This will make incremental build significantly faster.
+
+
 Performance
 -----------
 
