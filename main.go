@@ -40,10 +40,10 @@ import (
 	"os"
 	"runtime/pprof"
 	"sync"
+	"syscall"
 	"time"
+	"unsafe"
 
-	"github.com/kidoman/embd"
-	_ "github.com/kidoman/embd/host/all"
 	"github.com/maruel/interrupt"
 )
 
@@ -120,7 +120,7 @@ func (r *rawBufferRing) done(b *rawBuffer) {
 }
 
 type Lepton struct {
-	spiBus          embd.SPIBus
+	f               *os.File
 	currentImg      *rawBuffer
 	currentLine     int
 	packet          [164]uint8 // one line is sent as a SPI packet.
@@ -133,8 +133,78 @@ type Lepton struct {
 	dummyLines      int
 }
 
-func MakeLepton(spiBus embd.SPIBus) *Lepton {
-	return &Lepton{spiBus: spiBus, currentLine: -1}
+const (
+	spiIOCWrMode        = 0x40016B01
+	spiIOCWrBitsPerWord = 0x40016B03
+	spiIOCWrMaxSpeedHz  = 0x40046B04
+
+	spiIOCRdMode        = 0x80016B01
+	spiIOCRdBitsPerWord = 0x80016B03
+	spiIOCRdMaxSpeedHz  = 0x80046B04
+)
+
+func MakeLepton() (*Lepton, error) {
+	// Max rate supported by FLIR Lepton is 20Mhz. Minimum usable rate is ~4Mhz
+	// to sustain framerate.  Low rate is less likely to get electromagnetic
+	// interference and reduces unnecessary CPU consumption by reducing the
+	// number of dummy packets. spi_bcm2708 supports a limited number of
+	// frequencies so the actual value will differ. See http://elinux.org/RPi_SPI.
+	f, err := os.OpenFile("/dev/spidev0.0", os.O_RDWR, os.ModeExclusive)
+	if err != nil {
+		return nil, err
+	}
+	out := &Lepton{f: f, currentLine: -1}
+
+	mode := uint8(3)
+	if err := out.ioctl(spiIOCWrMode, uintptr(unsafe.Pointer(&mode))); err != nil {
+		return out, err
+	}
+	if err := out.ioctl(spiIOCRdMode, uintptr(unsafe.Pointer(&mode))); err != nil {
+		return out, err
+	}
+	if mode != 3 {
+		return out, fmt.Errorf("unexpected mode %d", mode)
+	}
+
+	bits := uint8(8)
+	if err := out.ioctl(spiIOCWrBitsPerWord, uintptr(unsafe.Pointer(&bits))); err != nil {
+		return out, err
+	}
+	if err := out.ioctl(spiIOCRdBitsPerWord, uintptr(unsafe.Pointer(&bits))); err != nil {
+		return out, err
+	}
+	if bits != 8 {
+		return out, fmt.Errorf("unexpected bits %d", bits)
+	}
+
+	speed := uint32(8000000)
+	if err := out.ioctl(spiIOCWrMaxSpeedHz, uintptr(unsafe.Pointer(&speed))); err != nil {
+		return out, err
+	}
+	if err := out.ioctl(spiIOCRdMaxSpeedHz, uintptr(unsafe.Pointer(&speed))); err != nil {
+		return out, err
+	}
+	if speed != 8000000 {
+		return out, fmt.Errorf("unexpected speed %d", bits)
+	}
+
+	return out, nil
+}
+
+func (l *Lepton) Close() error {
+	if l.f != nil {
+		err := l.f.Close()
+		l.f = nil
+		return err
+	}
+	return nil
+}
+
+func (l *Lepton) ioctl(op, arg uintptr) error {
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, l.f.Fd(), op, arg); errno != 0 {
+		return syscall.Errno(errno)
+	}
+	return nil
 }
 
 // readLine reads one line at a time.
@@ -145,13 +215,18 @@ func MakeLepton(spiBus embd.SPIBus) *Lepton {
 func (l *Lepton) readLine() {
 	// Operation must complete within 32ms. Frames occur every 38.4ms. With SPI,
 	// write must occur as read is being done, just sent dummy data.
-	if err := l.spiBus.TransferAndRecieveData(l.packet[:]); err != nil {
+	n, err := l.f.Read(l.packet[:])
+	if n != len(l.packet) && err == nil {
+		err = fmt.Errorf("unexpected read %d", n)
+	}
+	if err != nil {
 		l.transferFails++
 		l.currentLine = -1
 		if l.lastFail == nil {
 			fmt.Fprintf(os.Stderr, "\nI/O fail: %s\n\n", err)
 			l.lastFail = err
 		}
+		time.Sleep(200 * time.Millisecond)
 		return
 	}
 
@@ -247,20 +322,13 @@ func mainImpl() error {
 
 	interrupt.HandleCtrlC()
 
-	if err := embd.InitSPI(); err != nil {
+	l, err := MakeLepton()
+	if l != nil {
+		defer l.Close()
+	}
+	if err != nil {
 		return err
 	}
-	defer embd.CloseSPI()
-
-	// Max rate supported by FLIR Lepton is 20Mhz. Minimum usable rate is ~4Mhz
-	// to sustain framerate.  Low rate is less likely to get electromagnetic
-	// interference and reduces unnecessary CPU consumption by reducing the
-	// number of dummy packets. spi_bcm2708 supports a limited number of
-	// frequencies so the actual value will differ. See http://elinux.org/RPi_SPI.
-	spiBus := embd.NewSPIBus(embd.SPIMode3, 0, 4000000, 8, 0)
-	defer spiBus.Close()
-
-	l := MakeLepton(spiBus)
 
 	c := make(chan *rawBuffer, 16)
 
