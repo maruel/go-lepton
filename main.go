@@ -223,7 +223,7 @@ func (l *Lepton) readLine() {
 		l.transferFails++
 		l.currentLine = -1
 		if l.lastFail == nil {
-			fmt.Fprintf(os.Stderr, "\nI/O fail: %s\n\n", err)
+			fmt.Fprintf(os.Stderr, "\nI/O fail: %s\n", err)
 			l.lastFail = err
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -294,9 +294,29 @@ type doubleBuffer struct {
 
 var currentImage doubleBuffer
 
-func serveImg(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
+func root(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprintf(w, `
+	<html>
+	<head>
+	<title>go-lepton</title>
+	<script>
+	function reload() {
+		var still = document.getElementById("still");
+		still.src = "/still.png#" + new Date().getTime();
+	}
+	</script>
+	</head>
+	<body>
+	Still:<br>
+	<a href="/still.png"><img id="still" src="/still.png" onload="reload()"></img></a>
+	</body>
+	</html>`)
+}
+
+func still(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	currentImage.lock.Lock()
 	png.Encode(w, currentImage.frontBuffer)
 	currentImage.lock.Unlock()
@@ -338,7 +358,7 @@ func mainImpl() error {
 
 	go func() {
 		for {
-			// The idea is to keep this loop busy to not lose sync on SPI.
+			// Keep this loop busy to not lose sync on SPI.
 			b := ring.get()
 			l.ReadImg(b)
 			c <- b
@@ -347,7 +367,7 @@ func mainImpl() error {
 
 	go func() {
 		for {
-			// Processing is done in a separate loop.
+			// Processing is done in a separate loop to not miss a frame.
 			img := <-c
 			img.scale(currentImage.backBuffer)
 			ring.done(img)
@@ -357,13 +377,15 @@ func mainImpl() error {
 		}
 	}()
 
-	http.HandleFunc("/", serveImg)
-	fmt.Printf("Listening on %d\n\n", *port)
+	http.HandleFunc("/", root)
+	http.HandleFunc("/favicon.ico", still)
+	http.HandleFunc("/still.png", still)
+	fmt.Printf("Listening on %d\n", *port)
 	go http.ListenAndServe(fmt.Sprintf(":%d", *port), nil)
 
 	for !interrupt.IsSet() {
 		// TODO(maruel): load variables via atomic.
-		fmt.Printf("%d frames %d duped %d dummy %d badsync %d broken %d fail\r", l.goodFrames, l.duplicateFrames, l.dummyLines, l.syncFailures, l.brokenPackets, l.transferFails)
+		fmt.Printf("\r%d frames %d duped %d dummy %d badsync %d broken %d fail", l.goodFrames, l.duplicateFrames, l.dummyLines, l.syncFailures, l.brokenPackets, l.transferFails)
 		time.Sleep(time.Second)
 	}
 	fmt.Print("\n")
@@ -372,7 +394,7 @@ func mainImpl() error {
 
 func main() {
 	if err := mainImpl(); err != nil {
-		fmt.Fprintf(os.Stderr, "go-lepton: %s.\n", err)
+		fmt.Fprintf(os.Stderr, "\ngo-lepton: %s.\n", err)
 		os.Exit(1)
 	}
 }

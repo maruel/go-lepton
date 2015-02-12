@@ -12,7 +12,7 @@ Prerequisite Setup
 
 ### 1. Hardware
 
-Connect the port as shown at
+Connect the FLIR Lepton breakout board to the Raspberry Pi port as explained at
 https://github.com/PureEngineering/LeptonModule/wiki
 
 
@@ -29,34 +29,54 @@ linux kernel:
     sudo shutdown -r now
 
 
-### 3. Enabling SPI
+### 3. Enabling SPI and i²c
 
 As explained at http://www.raspberrypi.org/forums/viewtopic.php?p=675658#p675658,
 
     sudo vi /boot/config.txt
 
-and append these two lines at the end:
+Append this line at the end:
 
-    dtparam=i2c_arm=on
-    dtparam=spi=on
+    dtparam=i2c_arm=on,spi=on
 
-Then comment out the blacklist `blacklist spi-bcm2708` via
+Then edit:
 
     sudo vi /etc/modprobe.d/raspi-blacklist.conf
 
+Remove the blacklists lines:
 
-### 4. Accessing SPI without root
+    blacklist spi-bcm2708
+    blacklist i2c-bcm2708
 
-To be able to use the SPI port on the Raspberry Pi without root, run the
-following:
+Then reboot:
+
+    sudo shutdown -r now
+
+If /dev/i2c-1 still doesn't show up, at worst run:
+
+    sudo modprobe i2c-dev
+
+It seems like there's a race condition between i2c-dev and i2c-bcm2708, where if
+i2c-dev loads before i2c-bcm2708 is fully initialized, /dev/i2c-1 won't show up.
+_To be investigated later._
+
+
+### 4. Accessing SPI and i²c without root
+
+To be able to use the SPI and i²c ports on the Raspberry Pi without root, create
+a 'spi' group and add yourself to it, then add a
+[udev](http://reactivated.net/writing_udev_rules.html) rule to change the ACL on
+the device by running the following:
 
     sudo groupadd -f --system spi
     sudo adduser $USER spi
     echo 'SUBSYSTEM=="spidev", GROUP="spi"' | sudo tee --append /etc/udev/rules.d/90-spi.rules > /dev/null
+    echo 'SUBSYSTEM=="i2c-dev", GROUP="spi"' | sudo tee --append /etc/udev/rules.d/90-i2c.rules > /dev/null
     sudo shutdown -r now
 
 This removes the requirement of running random program as root just to access
-the SPI port.
+the SPI port and is much saner than people who tells you to use mode="0666".
+Using separate files so you can remove one or the other.
 
 
 ### 5. Software
@@ -73,17 +93,10 @@ setup your $GOROOT and $GOCODE environment.
 Installing
 ----------
 
+Building go-lepton on the Raspberry Pi v1 takes ~10s which is slow but still
+much faster than cross-compiling and transferring the file in.
+
     go get github.com/maruel/go-lepton
-
-Building go-lepton on the Raspberry Pi takes ~10s which is slow but still much
-faster than cross-compiling and transferring the files in. When hacking direclty
-on go-lepton, it's recommended to preinstall all libraries for maximum
-compilation performance.
-
-    cd $GOCODE/src
-    go install ./...
-
-This will make incremental build significantly faster.
 
 
 Performance
@@ -91,4 +104,4 @@ Performance
 
 Reading the SPI port takes ~50% the CPU of a Raspberry Pi v1 running
 Raspbian. There's a rumor about DMA based transfer but for now that's the
-fastest that can be acheived.
+fastest that can be achieved.
