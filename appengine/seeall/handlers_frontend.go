@@ -34,10 +34,10 @@ var sourcesTmpl = template.Must(template.New("sources").Parse(`
   <body>
 		<h1>Sources</h1>
 		<ul>
-    {{range .Sources}}
+		{{range $index, $source := .Sources}}
 			<li>
-				{{.Who}} - {{.Created}} - {{.Name}} - {{.Details}} - {{.SecretKey}} - {{.IP}}
-				<form action="/restricted/source/TODO_ID/delete" method="POST">
+				{{$source.Who}} - {{$source.Created}} - {{$source.Name}} - {{$source.Details}} - {{$source.SecretKeyBase64}} - {{$source.IP}}
+				<form action="/restricted/source/{{index .Keys $index}}/delete" method="POST">
 					<input type="submit" value="Delete">
 				</form>
 			</li>
@@ -60,14 +60,17 @@ func sourcesHdlr(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	q := datastore.NewQuery("Source").Order("-__key__")
+	q := datastore.NewQuery("Source").Order("__key__")
 	data := struct {
-		Sources []Source
+		SourceKeys []*datastore.Key
+		Sources    []Source
 	}{}
-	if _, err := q.GetAll(c, &data.Sources); err != nil {
+	keys, err := q.GetAll(c, &data.Sources)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	data.SourceKeys = keys
 	if err := sourcesTmpl.Execute(w, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -81,28 +84,28 @@ func sourcesAddHdlr(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
 	u := user.Current(c)
 
-	random := [8]byte{}
-	if _, err := rand.Read(random[:]); err != nil {
+	random := make([]byte, 8)
+	if _, err := rand.Read(random); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	dummy := &Source{}
 	source := &Source{
-		Who:       u.String(),
-		Created:   time.Now().UTC(),
-		Name:      r.FormValue("Name"),
-		Details:   r.FormValue("Details"),
-		SecretKey: random[:],
-		IP:        r.FormValue("IP"),
+		Who:     u.String(),
+		Created: time.Now().UTC(),
+		Name:    r.FormValue("Name"),
+		Details: r.FormValue("Details"),
+		Secret:  random,
+		IP:      r.FormValue("IP"),
 	}
-	// TODO(maruel): Transaction:
 	for i := int64(1); ; i++ {
+		// TODO(maruel): datastore.RunInTransaction()
 		key := datastore.NewKey(c, "Source", "", i, nil)
-		if err := datastore.Get(c, key, &dummy); err != datastore.ErrNoSuchEntity {
+		if err := datastore.Get(c, key, dummy); err != datastore.ErrNoSuchEntity {
 			continue
 		}
-		if _, err := datastore.Put(c, key, &source); err != nil {
+		if _, err := datastore.Put(c, key, source); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

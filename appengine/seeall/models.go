@@ -5,6 +5,7 @@
 package seeall
 
 import (
+	"encoding/base64"
 	"time"
 )
 
@@ -13,12 +14,16 @@ type GlobalConfig struct {
 
 // Key is an id starting a 1.
 type Source struct {
-	Who       string    `datastore:""`
-	Created   time.Time `datastore:""`
-	Name      string    `datastore:""`
-	Details   string    `datastore:",noindex"`
-	SecretKey []byte    `datastore:",noindex"`
-	IP        string    `datastore:",noindex"`
+	Who     string    `datastore:""`
+	Created time.Time `datastore:""`
+	Name    string    `datastore:""`
+	Details string    `datastore:",noindex"`
+	Secret  []byte    `datastore:",noindex"`
+	IP      string    `datastore:",noindex"`
+}
+
+func (s *Source) SecretKeyBase64() string {
+	return base64.URLEncoding.EncodeToString(s.Secret)
 }
 
 type Image struct {
