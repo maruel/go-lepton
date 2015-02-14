@@ -60,7 +60,7 @@ var rootTmpl = template.Must(template.New("name").Parse(`
 		<title>go-lepton</title>
 		<style>
 			img.large {
-				width: 500%; /* Or multiple of 80 */
+				width: 480; /* Multiple of 80 */
 				height: auto;
 			}
 		</style>
