@@ -82,14 +82,14 @@ def main():
 
   # '--oauth2',
   cmd = [
-    os.path.join(GO_APPENGINE, 'appcfg.py'), 'switch', SEE_ALL_DIR,
+    os.path.join(GO_APPENGINE, 'appcfg.py'), 'update', SEE_ALL_DIR,
     '-V', version,
   ]
   ret = subprocess.call(cmd)
   if ret:
     return ret
   cmd = [
-    os.path.join(GO_APPENGINE, 'appcfg.py'), 'switch', SEE_ALL_DIR,
+    os.path.join(GO_APPENGINE, 'appcfg.py'), 'set_default_version', SEE_ALL_DIR,
     '-V', version,
   ]
   return subprocess.call(cmd)
