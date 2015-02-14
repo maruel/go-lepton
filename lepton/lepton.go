@@ -56,6 +56,8 @@ const (
 // since the Raspberry Pi is CPU constrained.
 type LeptonBuffer struct {
 	Pix [80 * 60]uint16
+	Min uint16
+	Max uint16
 }
 
 func (l *LeptonBuffer) ColorModel() color.Model {
@@ -76,8 +78,8 @@ func (l *LeptonBuffer) Gray16At(x, y int) uint16 {
 
 // Scale reduces the dynamic range of a 14 bits down to 8 bits very naively.
 func Scale(dst *image.Gray, src *LeptonBuffer) {
-	floor := Min(src)
-	delta := int(Max(src) - floor)
+	floor := src.Min
+	delta := int(src.Max - floor)
 	for y := 0; y < 60; y++ {
 		for x := 0; x < 80; x++ {
 			v := int(src.Gray16At(x, y)-floor) * 255 / delta
@@ -86,30 +88,20 @@ func Scale(dst *image.Gray, src *LeptonBuffer) {
 	}
 }
 
-func Max(l *LeptonBuffer) uint16 {
-	out := uint16(0)
+func (l *LeptonBuffer) updateStats() {
+	l.Max = uint16(0)
+	l.Min = uint16(0xffff)
 	for y := 0; y < 60; y++ {
 		for x := 0; x < 80; x++ {
 			j := l.Pix[y*80+x]
-			if j > out {
-				out = j
+			if j > l.Max {
+				l.Max = j
+			}
+			if j < l.Min {
+				l.Min = j
 			}
 		}
 	}
-	return out
-}
-
-func Min(l *LeptonBuffer) uint16 {
-	out := uint16(0xffff)
-	for y := 0; y < 60; y++ {
-		for x := 0; x < 80; x++ {
-			j := l.Pix[y*80+x]
-			if j < out {
-				out = j
-			}
-		}
-	}
-	return out
 }
 
 func Eq(l *LeptonBuffer, r *LeptonBuffer) bool {
@@ -281,6 +273,7 @@ func (l *Lepton) ReadImg(r *LeptonBuffer) {
 		}
 		if prevImg == nil || !Eq(prevImg, l.currentImg) {
 			l.stats.GoodFrames++
+			l.currentImg.updateStats()
 			break
 		}
 		// It also happen if the image is static.

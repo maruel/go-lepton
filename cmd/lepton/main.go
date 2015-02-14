@@ -48,6 +48,8 @@ type doubleBuffer struct {
 	frontBuffer *image.Gray
 	backBuffer  *image.Gray
 	stats       lepton.Stats
+	Min         uint16
+	Max         uint16
 }
 
 var currentImage doubleBuffer
@@ -67,16 +69,17 @@ var rootTmpl = template.Must(template.New("name").Parse(`
 	Still:<br>
 	<a href="/still.png"><img id="still" src="/still.png" onload="reload()"></img></a>
 	<br>
-	{{.}}
+	{{.Stats}}
+	<br>
+	{{.Min}} - {{.Max}}
 	</body>
 	</html>`))
 
 func root(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	currentImage.lock.Lock()
-	stats := currentImage.stats
+	rootTmpl.Execute(w, &currentImage)
 	currentImage.lock.Unlock()
-	rootTmpl.Execute(w, stats)
 }
 
 func still(w http.ResponseWriter, r *http.Request) {
@@ -138,6 +141,8 @@ func mainImpl() error {
 			ring.done(img)
 			currentImage.lock.Lock()
 			currentImage.backBuffer, currentImage.frontBuffer = currentImage.frontBuffer, currentImage.backBuffer
+			currentImage.Min = img.Min
+			currentImage.Max = img.Max
 			currentImage.lock.Unlock()
 		}
 	}()
