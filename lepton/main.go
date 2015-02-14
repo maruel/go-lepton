@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/maruel/go-lepton/lepton"
+	"github.com/maruel/go-lepton/lepton/lepton"
 	"github.com/maruel/interrupt"
 )
 
