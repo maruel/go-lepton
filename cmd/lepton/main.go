@@ -73,7 +73,7 @@ var rootTmpl = template.Must(template.New("name").Parse(`
 	</head>
 	<body>
 	Still:<br>
-	<a class="large" href="/still.png"><img id="still" src="/still.png" onload="reload()"></img></a>
+	<a href="/still.png"><img class="large" id="still" src="/still.png" onload="reload()"></img></a>
 	<br>
 	{{.Stats}}
 	<br>
