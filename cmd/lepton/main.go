@@ -57,17 +57,23 @@ var currentImage doubleBuffer
 var rootTmpl = template.Must(template.New("name").Parse(`
 	<html>
 	<head>
-	<title>go-lepton</title>
-	<script>
-	function reload() {
-		var still = document.getElementById("still");
-		still.src = "/still.png#" + new Date().getTime();
-	}
-	</script>
+		<title>go-lepton</title>
+		<style>
+			img.large {
+				width: 500%; /* Or multiple of 80 */
+				height: auto;
+			}
+		</style>
+		<script>
+		function reload() {
+			var still = document.getElementById("still");
+			still.src = "/still.png#" + new Date().getTime();
+		}
+		</script>
 	</head>
 	<body>
 	Still:<br>
-	<a href="/still.png"><img id="still" src="/still.png" onload="reload()"></img></a>
+	<a class="large" href="/still.png"><img id="still" src="/still.png" onload="reload()"></img></a>
 	<br>
 	{{.Stats}}
 	<br>
