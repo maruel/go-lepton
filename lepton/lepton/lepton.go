@@ -2,7 +2,8 @@
 // Use of this source code is governed under the Apache License, Version 2.0
 // that can be found in the LICENSE file.
 
-// Takes video from FLIR Lepton connected to a Raspberry Pi SPI port.
+// Package lepton takes video from FLIR Lepton connected to a Raspberry Pi SPI
+// port.
 //
 // References:
 // http://www.pureengineering.com/projects/lepton
@@ -29,109 +30,17 @@
 //
 // Information about the Raspberry Pi SPI driver:
 //   http://elinux.org/RPi_SPI
-package main
+package lepton
 
 import (
-	"flag"
 	"fmt"
 	"image"
-	"image/png"
-	"net/http"
+	"image/color"
 	"os"
-	"runtime/pprof"
-	"sync"
 	"syscall"
 	"time"
 	"unsafe"
-
-	"github.com/maruel/interrupt"
 )
-
-type rawBuffer [60][80]uint16
-
-// scale reduces the dynamic range of a 14 bits down to 8 bits very naively.
-func (r *rawBuffer) scale(dst *image.Gray) {
-	floor := r.minVal()
-	delta := int(r.maxVal() - floor)
-	for y := 0; y < 60; y++ {
-		for x := 0; x < 80; x++ {
-			v := (int(r[y][x] - floor)) * 255 / delta
-			dst.Pix[dst.Stride*y+x] = uint8(v)
-		}
-	}
-}
-
-func (r *rawBuffer) maxVal() uint16 {
-	out := uint16(0)
-	for y := 0; y < 60; y++ {
-		for x := 0; x < 80; x++ {
-			if r[y][x] > out {
-				out = r[y][x]
-			}
-		}
-	}
-	return out
-}
-
-func (r *rawBuffer) minVal() uint16 {
-	out := uint16(0xffff)
-	for y := 0; y < 60; y++ {
-		for x := 0; x < 80; x++ {
-			if r[y][x] < out {
-				out = r[y][x]
-			}
-		}
-	}
-	return out
-}
-
-func (r *rawBuffer) eq(l *rawBuffer) bool {
-	for y := 0; y < 60; y++ {
-		for x := 0; x < 80; x++ {
-			if r[y][x] != l[y][x] {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-type rawBufferRing struct {
-	c chan *rawBuffer
-}
-
-func makeRawBufferRing() *rawBufferRing {
-	return &rawBufferRing{c: make(chan *rawBuffer, 16)}
-}
-
-func (r *rawBufferRing) get() *rawBuffer {
-	select {
-	case b := <-r.c:
-		return b
-	default:
-		return &rawBuffer{}
-	}
-}
-
-func (r *rawBufferRing) done(b *rawBuffer) {
-	if len(r.c) < 8 {
-		r.c <- b
-	}
-}
-
-type Lepton struct {
-	f               *os.File
-	currentImg      *rawBuffer
-	currentLine     int
-	packet          [164]uint8 // one line is sent as a SPI packet.
-	goodFrames      int        // stats
-	duplicateFrames int
-	transferFails   int
-	lastFail        error
-	brokenPackets   int
-	syncFailures    int
-	dummyLines      int
-}
 
 const (
 	spiIOCWrMode        = 0x40016B01
@@ -142,6 +51,95 @@ const (
 	spiIOCRdBitsPerWord = 0x80016B03
 	spiIOCRdMaxSpeedHz  = 0x80046B04
 )
+
+// LeptonBuffer implements image.Image. It is essentially a Gray16 but faster
+// since the Raspberry Pi is CPU constrained.
+type LeptonBuffer struct {
+	Pix [80 * 60]uint16
+}
+
+func (l *LeptonBuffer) ColorModel() color.Model {
+	return color.Gray16Model
+}
+
+func (l *LeptonBuffer) Bounds() image.Rectangle {
+	return image.Rect(0, 0, 80, 60)
+}
+
+func (l *LeptonBuffer) At(x, y int) color.Color {
+	return color.Gray16{l.Gray16At(x, y)}
+}
+
+func (l *LeptonBuffer) Gray16At(x, y int) uint16 {
+	return l.Pix[y*80+x]
+}
+
+// Scale reduces the dynamic range of a 14 bits down to 8 bits very naively.
+func Scale(dst *image.Gray, src *LeptonBuffer) {
+	floor := Min(src)
+	delta := int(Max(src) - floor)
+	for y := 0; y < 60; y++ {
+		for x := 0; x < 80; x++ {
+			v := int(src.Gray16At(x, y)-floor) * 255 / delta
+			dst.Pix[y*80+x] = uint8(v)
+		}
+	}
+}
+
+func Max(l *LeptonBuffer) uint16 {
+	out := uint16(0)
+	for y := 0; y < 60; y++ {
+		for x := 0; x < 80; x++ {
+			j := l.Pix[y*80+x]
+			if j > out {
+				out = j
+			}
+		}
+	}
+	return out
+}
+
+func Min(l *LeptonBuffer) uint16 {
+	out := uint16(0xffff)
+	for y := 0; y < 60; y++ {
+		for x := 0; x < 80; x++ {
+			j := l.Pix[y*80+x]
+			if j < out {
+				out = j
+			}
+		}
+	}
+	return out
+}
+
+func Eq(l *LeptonBuffer, r *LeptonBuffer) bool {
+	for y := 0; y < 60; y++ {
+		for x := 0; x < 80; x++ {
+			if l.Pix[y*80+x] != r.Pix[y*80+x] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+type Stats struct {
+	LastFail        error
+	GoodFrames      int
+	DuplicateFrames int
+	TransferFails   int
+	BrokenPackets   int
+	SyncFailures    int
+	DummyLines      int
+}
+
+type Lepton struct {
+	f           *os.File
+	currentImg  *LeptonBuffer
+	currentLine int
+	packet      [164]uint8 // one line is sent as a SPI packet.
+	stats       Stats
+}
 
 func MakeLepton() (*Lepton, error) {
 	// Max rate supported by FLIR Lepton is 20Mhz. Minimum usable rate is ~4Mhz
@@ -200,6 +198,11 @@ func (l *Lepton) Close() error {
 	return nil
 }
 
+func (l *Lepton) Stats() Stats {
+	// TODO(maruel): atomic.
+	return l.stats
+}
+
 func (l *Lepton) ioctl(op, arg uintptr) error {
 	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, l.f.Fd(), op, arg); errno != 0 {
 		return syscall.Errno(errno)
@@ -220,22 +223,22 @@ func (l *Lepton) readLine() {
 		err = fmt.Errorf("unexpected read %d", n)
 	}
 	if err != nil {
-		l.transferFails++
+		l.stats.TransferFails++
 		l.currentLine = -1
-		if l.lastFail == nil {
+		if l.stats.LastFail == nil {
 			fmt.Fprintf(os.Stderr, "\nI/O fail: %s\n", err)
-			l.lastFail = err
+			l.stats.LastFail = err
 		}
 		time.Sleep(200 * time.Millisecond)
 		return
 	}
 
-	l.lastFail = nil
+	l.stats.LastFail = nil
 	if (l.packet[0] & 0xf) == 0x0f {
 		// Discard packet. This happens as the bandwidth of SPI is larger than data
 		// rate.
 		l.currentLine = -1
-		l.dummyLines++
+		l.stats.DummyLines++
 		return
 	}
 
@@ -246,26 +249,26 @@ func (l *Lepton) readLine() {
 	line := int(l.packet[1])
 	if line > 60 {
 		time.Sleep(200 * time.Millisecond)
-		l.brokenPackets++
+		l.stats.BrokenPackets++
 		l.currentLine = -1
 		return
 	}
 	if line != l.currentLine+1 {
 		time.Sleep(200 * time.Millisecond)
-		l.syncFailures++
+		l.stats.SyncFailures++
 		l.currentLine = -1
 		return
 	}
 
 	// Convert the line from byte to uint16. 14 bits significant.
 	l.currentLine++
-	for i := 0; i < 80; i++ {
-		l.currentImg[line][i] = (uint16(l.packet[2*i+4])<<8 | uint16(l.packet[2*i+5]))
+	for x := 0; x < 80; x++ {
+		l.currentImg.Pix[line*80+x] = (uint16(l.packet[2*x+4])<<8 | uint16(l.packet[2*x+5]))
 	}
 }
 
-// ReadImg reads an image into currentImg.
-func (l *Lepton) ReadImg(r *rawBuffer) {
+// ReadImg reads an image into an image. It must be 80x60.
+func (l *Lepton) ReadImg(r *LeptonBuffer) {
 	l.currentLine = -1
 	prevImg := l.currentImg
 	l.currentImg = r
@@ -276,125 +279,12 @@ func (l *Lepton) ReadImg(r *rawBuffer) {
 		for l.currentLine != 59 {
 			l.readLine()
 		}
-		if prevImg == nil || !prevImg.eq(l.currentImg) {
-			l.goodFrames++
+		if prevImg == nil || !Eq(prevImg, l.currentImg) {
+			l.stats.GoodFrames++
 			break
 		}
 		// It also happen if the image is static.
-		l.duplicateFrames++
+		l.stats.DuplicateFrames++
 		l.currentLine = -1
-	}
-}
-
-type doubleBuffer struct {
-	lock        sync.Mutex
-	frontBuffer *image.Gray
-	backBuffer  *image.Gray
-}
-
-var currentImage doubleBuffer
-
-func root(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, `
-	<html>
-	<head>
-	<title>go-lepton</title>
-	<script>
-	function reload() {
-		var still = document.getElementById("still");
-		still.src = "/still.png#" + new Date().getTime();
-	}
-	</script>
-	</head>
-	<body>
-	Still:<br>
-	<a href="/still.png"><img id="still" src="/still.png" onload="reload()"></img></a>
-	</body>
-	</html>`)
-}
-
-func still(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
-	currentImage.lock.Lock()
-	png.Encode(w, currentImage.frontBuffer)
-	currentImage.lock.Unlock()
-}
-
-func mainImpl() error {
-	cpuprofile := flag.String("cpuprofile", "", "dump CPU profile in file")
-	port := flag.Int("port", 8010, "http port to listen on")
-	flag.Parse()
-
-	if len(flag.Args()) != 0 {
-		return fmt.Errorf("unexpected argument: %s", flag.Args())
-	}
-
-	if *cpuprofile != "" {
-		f, err := os.Create(*cpuprofile)
-		if err != nil {
-			return err
-		}
-		pprof.StartCPUProfile(f)
-		defer pprof.StopCPUProfile()
-	}
-
-	interrupt.HandleCtrlC()
-
-	l, err := MakeLepton()
-	if l != nil {
-		defer l.Close()
-	}
-	if err != nil {
-		return err
-	}
-
-	c := make(chan *rawBuffer, 16)
-
-	currentImage.frontBuffer = image.NewGray(image.Rect(0, 0, 80, 60))
-	currentImage.backBuffer = image.NewGray(image.Rect(0, 0, 80, 60))
-	ring := makeRawBufferRing()
-
-	go func() {
-		for {
-			// Keep this loop busy to not lose sync on SPI.
-			b := ring.get()
-			l.ReadImg(b)
-			c <- b
-		}
-	}()
-
-	go func() {
-		for {
-			// Processing is done in a separate loop to not miss a frame.
-			img := <-c
-			img.scale(currentImage.backBuffer)
-			ring.done(img)
-			currentImage.lock.Lock()
-			currentImage.backBuffer, currentImage.frontBuffer = currentImage.frontBuffer, currentImage.backBuffer
-			currentImage.lock.Unlock()
-		}
-	}()
-
-	http.HandleFunc("/", root)
-	http.HandleFunc("/favicon.ico", still)
-	http.HandleFunc("/still.png", still)
-	fmt.Printf("Listening on %d\n", *port)
-	go http.ListenAndServe(fmt.Sprintf(":%d", *port), nil)
-
-	for !interrupt.IsSet() {
-		// TODO(maruel): load variables via atomic.
-		fmt.Printf("\r%d frames %d duped %d dummy %d badsync %d broken %d fail", l.goodFrames, l.duplicateFrames, l.dummyLines, l.syncFailures, l.brokenPackets, l.transferFails)
-		time.Sleep(time.Second)
-	}
-	fmt.Print("\n")
-	return nil
-}
-
-func main() {
-	if err := mainImpl(); err != nil {
-		fmt.Fprintf(os.Stderr, "\ngo-lepton: %s.\n", err)
-		os.Exit(1)
 	}
 }

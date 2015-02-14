@@ -96,7 +96,17 @@ Installing
 Building go-lepton on the Raspberry Pi v1 takes ~10s which is slow but still
 much faster than cross-compiling and transferring the file in.
 
-    go get github.com/maruel/go-lepton
+    go get github.com/maruel/go-lepton/lepton
+
+Install it as a crontab @reboot, e.g.:
+
+    echo 'su - $USER $GOCODE/src/github.com/maruel/go-lepton/run.sh' | sudo tee --append /root/start_lepton.sh > /dev/null
+    sudo chmod +x /root/start_lepton.sh
+    sudo crontab -e
+
+Then add
+
+    @reboot /root/start_lepton.sh
 
 
 Performance
