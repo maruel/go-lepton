@@ -87,7 +87,7 @@ It's recommended to compile directly on the device. First, you'll need git:
 
 Then visit http://dave.cheney.net/unofficial-arm-tarballs and grab the right
 tarball, currently go1.4.linux-arm~multiarch-armv6-1.tar.gz. Extract it and
-setup your $GOROOT and $GOCODE environment.
+setup your $GOROOT and $GOPATH environment.
 
 
 Installing
@@ -100,7 +100,7 @@ much faster than cross-compiling and transferring the file in.
 
 Install it as a crontab @reboot, e.g.:
 
-    echo 'su - $USER $GOCODE/src/github.com/maruel/go-lepton/run.sh' | sudo tee --append /root/start_lepton.sh > /dev/null
+    echo 'su - $USER $GOPATH/src/github.com/maruel/go-lepton/run.sh' | sudo tee --append /root/start_lepton.sh > /dev/null
     sudo chmod +x /root/start_lepton.sh
     sudo crontab -e
 
