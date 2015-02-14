@@ -8,14 +8,17 @@ import (
 	"time"
 )
 
+type GlobalConfig struct {
+}
+
 // Key is an id starting a 1.
 type Source struct {
 	Who       string    `datastore:""`
 	Created   time.Time `datastore:""`
 	Name      string    `datastore:""`
 	Details   string    `datastore:",noindex"`
-	SecretKey string    `datastore:",noindex"`
-	IP        []string  `datastore:",noindex"`
+	SecretKey []byte    `datastore:",noindex"`
+	IP        string    `datastore:",noindex"`
 }
 
 type Image struct {
