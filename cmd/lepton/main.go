@@ -7,6 +7,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"html/template"
 	"image"
 	"image/png"
 	"net/http"
@@ -46,13 +47,12 @@ type doubleBuffer struct {
 	lock        sync.Mutex
 	frontBuffer *image.Gray
 	backBuffer  *image.Gray
+	stats       lepton.Stats
 }
 
 var currentImage doubleBuffer
 
-func root(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, `
+var rootTmpl = template.Must(template.New("name").Parse(`
 	<html>
 	<head>
 	<title>go-lepton</title>
@@ -66,16 +66,25 @@ func root(w http.ResponseWriter, r *http.Request) {
 	<body>
 	Still:<br>
 	<a href="/still.png"><img id="still" src="/still.png" onload="reload()"></img></a>
+	<br>
+	{{.}}
 	</body>
-	</html>`)
+	</html>`))
+
+func root(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html")
+	currentImage.lock.Lock()
+	stats := currentImage.stats
+	currentImage.lock.Unlock()
+	rootTmpl.Execute(w, stats)
 }
 
 func still(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	currentImage.lock.Lock()
+	defer currentImage.lock.Unlock()
 	png.Encode(w, currentImage.frontBuffer)
-	currentImage.lock.Unlock()
 }
 
 func mainImpl() error {
@@ -140,8 +149,10 @@ func mainImpl() error {
 	go http.ListenAndServe(fmt.Sprintf(":%d", *port), nil)
 
 	for !interrupt.IsSet() {
-		// TODO(maruel): load variables via atomic.
 		stats := l.Stats()
+		currentImage.lock.Lock()
+		currentImage.stats = stats
+		currentImage.lock.Unlock()
 		fmt.Printf("\r%d frames %d duped %d dummy %d badsync %d broken %d fail", stats.GoodFrames, stats.DuplicateFrames, stats.DummyLines, stats.SyncFailures, stats.BrokenPackets, stats.TransferFails)
 		time.Sleep(time.Second)
 	}

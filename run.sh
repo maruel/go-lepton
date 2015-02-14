@@ -6,7 +6,7 @@
 # Syncs and runs itself.
 
 BASEDIR=$(dirname $0)
-go get -u github.com/maruel/go-lepton/lepton
+go get -u github.com/maruel/go-lepton/cmd/lepton
 lepton
 
 # Start again in case of crash.
