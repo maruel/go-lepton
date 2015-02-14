@@ -47,7 +47,7 @@ type doubleBuffer struct {
 	lock        sync.Mutex
 	frontBuffer *image.Gray
 	backBuffer  *image.Gray
-	stats       lepton.Stats
+	Stats       lepton.Stats
 	Min         uint16
 	Max         uint16
 }
@@ -78,7 +78,7 @@ var rootTmpl = template.Must(template.New("name").Parse(`
 func root(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	currentImage.lock.Lock()
-	rootTmpl.Execute(w, &currentImage)
+	rootTmpl.Execute(w, currentImage)
 	currentImage.lock.Unlock()
 }
 
@@ -156,7 +156,7 @@ func mainImpl() error {
 	for !interrupt.IsSet() {
 		stats := l.Stats()
 		currentImage.lock.Lock()
-		currentImage.stats = stats
+		currentImage.Stats = stats
 		currentImage.lock.Unlock()
 		fmt.Printf("\r%d frames %d duped %d dummy %d badsync %d broken %d fail", stats.GoodFrames, stats.DuplicateFrames, stats.DummyLines, stats.SyncFailures, stats.BrokenPackets, stats.TransferFails)
 		time.Sleep(time.Second)
