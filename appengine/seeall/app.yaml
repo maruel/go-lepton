@@ -41,6 +41,12 @@ handlers:
   secure: always
   login: required
 
+# Enforce login via AppEngine to save on CPU.
+- url: /restricted/.*
+  script: _go_app
+  secure: always
+  login: admin
+
 # Save on CPU by not warming up.
 #inbound_services:
 #- warmup
