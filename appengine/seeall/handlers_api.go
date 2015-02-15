@@ -5,6 +5,7 @@
 package seeall
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -64,7 +65,7 @@ func pushHdlr(w http.ResponseWriter, r *http.Request) {
 	}
 	n := goon.NewGoon(r)
 	src := &Source{ID: req.ID}
-	log.Printf("ID:%d Secret:%s; %d imgs", req.ID, base64.EncodeToString(req.Secret), len(req.Items))
+	log.Printf("ID:%d Secret:%s; %d imgs", req.ID, base64.URLEncoding.EncodeToString(req.Secret), len(req.Items))
 	if err := n.Get(src); err != nil {
 		errorJSON(w, err, http.StatusNotFound)
 		return
@@ -73,7 +74,7 @@ func pushHdlr(w http.ResponseWriter, r *http.Request) {
 	// TODO(maruel): r.RemoteAddr against src.WhitelistIP.
 
 	// TODO(maruel): Use an HMAC instead of dumb pass around.
-	if src.Secret != req.Secret {
+	if !bytes.Equal(src.Secret, req.Secret) {
 		errorJSON(w, errors.New("incorrect Secret"), http.StatusBadRequest)
 		return
 	}
