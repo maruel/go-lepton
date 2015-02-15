@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sync"
 	"time"
 
 	"appengine/datastore"
@@ -79,15 +80,12 @@ func pushHdlr(w http.ResponseWriter, r *http.Request) {
 
 	is := &ImageStream{ID: 1, Parent: n.Key(src)}
 	imgs := make([]Image, len(req.Items))
-	entities := make([]interface{}, len(req.Items)+1)
-	entities[0] = is
 	now := time.Now().UTC()
 	for i, item := range req.Items {
 		imgs[i].Created = now
 		imgs[i].RemoteAddr = r.RemoteAddr
 		imgs[i].Timestamp = item.Timestamp
 		imgs[i].PNG = item.PNG
-		entities[i+1] = imgs[i]
 	}
 	opts := &datastore.TransactionOptions{}
 	if err := n.RunInTransaction(func(tg *goon.Goon) error {
@@ -102,10 +100,25 @@ func pushHdlr(w http.ResponseWriter, r *http.Request) {
 		}
 		is.NextID++
 		is.Modified = now
-		if _, err := n.PutMulti(entities); err != nil {
-			return err
+		// Sadly goon supports only one entity type per call, so do two concurrent
+		// calls.
+		var wg sync.WaitGroup
+		var err1 error
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err1 = n.Put(is)
+		}()
+		var err2 error
+		wg.Add(1)
+		go func() {
+			_, err2 = n.PutMulti(imgs)
+		}()
+		wg.Wait()
+		if err1 != nil {
+			return err1
 		}
-		return nil
+		return err2
 	}, opts); err != nil {
 		errorJSON(w, err, http.StatusInternalServerError)
 		return

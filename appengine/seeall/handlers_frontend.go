@@ -9,6 +9,7 @@ import (
 	"html/template"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"appengine"
@@ -116,7 +117,7 @@ func sourcesAddHdlr(w http.ResponseWriter, r *http.Request) {
 	if len(keys) != 0 {
 		dummy.ID = keys[len(keys)-1].IntID()
 	}
-	source := &Source{
+	src := &Source{
 		Who:         u.String(),
 		Created:     time.Now().UTC(),
 		RemoteAddr:  r.RemoteAddr,
@@ -126,8 +127,6 @@ func sourcesAddHdlr(w http.ResponseWriter, r *http.Request) {
 		WhitelistIP: r.FormValue("WhitelistIP"),
 	}
 	is := &ImageStream{ID: 1}
-	entities := []interface{}{source, is}
-
 	opts := &datastore.TransactionOptions{}
 	for {
 		if err := n.RunInTransaction(func(tg *goon.Goon) error {
@@ -136,12 +135,27 @@ func sourcesAddHdlr(w http.ResponseWriter, r *http.Request) {
 				// Force to continue to loop.
 				return datastore.ErrNoSuchEntity
 			}
-			source.ID = dummy.ID
-			is.Parent = tg.Key(source)
-			if _, err := n.PutMulti(entities); err != nil {
-				return err
+			src.ID = dummy.ID
+			is.Parent = tg.Key(src)
+			// Sadly goon supports only one entity type per call, so do two concurrent
+			// calls.
+			var wg sync.WaitGroup
+			var err1 error
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, err1 = n.Put(src)
+			}()
+			var err2 error
+			wg.Add(1)
+			go func() {
+				_, err2 = n.Put(is)
+			}()
+			wg.Wait()
+			if err1 != nil {
+				return err1
 			}
-			return nil
+			return err2
 		}, opts); err == nil {
 			break
 		}
@@ -182,9 +196,27 @@ func sourceHdlr(w http.ResponseWriter, r *http.Request) {
 		ImageStream: ImageStream{ID: 1},
 	}
 	data.ImageStream.Parent = n.Key(data.Source)
-	entities := []interface{}{&data.Source, &data.ImageStream}
-	if err := n.GetMulti(entities); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+	// Sadly goon supports only one entity type per call, so do two concurrent
+	// calls.
+	var wg sync.WaitGroup
+	var err1 error
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		err1 = n.Get(&data.Source)
+	}()
+	var err2 error
+	wg.Add(1)
+	go func() {
+		err2 = n.Get(data.ImageStream)
+	}()
+	wg.Wait()
+	if err1 != nil {
+		http.Error(w, err1.Error(), http.StatusNotFound)
+		return
+	}
+	if err2 != nil {
+		http.Error(w, err2.Error(), http.StatusNotFound)
 		return
 	}
 	items := data.ImageStream.NextID
