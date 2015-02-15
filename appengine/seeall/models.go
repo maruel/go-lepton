@@ -25,7 +25,7 @@ type Source struct {
 	IP      string    `datastore:",noindex"`
 }
 
-func (s *Source) SecretKeyBase64() string {
+func (s *Source) SecretBase64() string {
 	return base64.URLEncoding.EncodeToString(s.Secret)
 }
 
@@ -34,4 +34,8 @@ type Image struct {
 	Parent  *datastore.Key `datastore:"-" goon:"parent"`
 	Created time.Time      `datastore:""`
 	PNG     []byte         `datastore:",noindex"`
+}
+
+func (i *Image) PNGBase64() string {
+	return base64.URLEncoding.EncodeToString(i.PNG)
 }

@@ -48,7 +48,7 @@ func pushHdlr(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	if src.SecretKeyBase64() != req.Secret {
+	if src.SecretBase64() != req.Secret {
 		http.Error(w, "Bad secret", http.StatusBadRequest)
 		return
 	}

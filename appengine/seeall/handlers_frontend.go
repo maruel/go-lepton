@@ -34,7 +34,7 @@ var sourcesTmpl = template.Must(template.New("sources").Parse(`
 		<ul>
 		{{range $index, $source := .Sources}}
 			<li>
-				{{$source.Who}} - {{$source.Created}} - {{$source.Name}} - {{$source.Details}} - {{$source.SecretKeyBase64}} - {{$source.IP}}
+				{{$source.Who}} - {{$source.Created}} - {{$source.Name}} - {{$source.Details}} - {{$source.SecretBase64}} - {{$source.IP}}
 				<form action="/restricted/source/{{with index $.SourceKeys $index}}{{.IntID}}{{end}}/delete" method="POST">
 					<input type="submit" value="Delete">
 				</form>
@@ -82,7 +82,7 @@ func sourcesAddHdlr(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
 	u := user.Current(c)
 	n := goon.NewGoon(r)
-
+	// TODO(maruel): XSRF token.
 	random := make([]byte, 8)
 	if _, err := rand.Read(random); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -114,23 +114,69 @@ func sourcesAddHdlr(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/restricted/sources", http.StatusFound)
 }
 
+var reSource = regexp.MustCompile("^/restricted/source/(\\d+)$")
 var reSourceDelete = regexp.MustCompile("^/restricted/source/(\\d+)/delete$")
 
-func sourceHdlr(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "Only POST is supported", http.StatusMethodNotAllowed)
-		return
-	}
+var sourceTmpl = template.Must(template.New("source").Parse(`
+<html>
+  <head>
+    <title>See All Source {{.Source.Name}}</title>
+  </head>
+  <body>
+		<h1>Source {{.Source.Name}}</h1>
+		<ul>
+		{{range .Images}}
+			<img src="data:image/png;base64,{{.PNGBase64}}"></img><br>
+    {{end}}
+  </body>
+</html>
+`))
 
-	// Simple regexp parsing
+func sourceHdlr(w http.ResponseWriter, r *http.Request) {
 	n := goon.NewGoon(r)
-	if m := reSourceDelete.FindStringSubmatch(r.URL.Path); m != nil {
-		i, err := strconv.Atoi(m[1])
+	if m := reSource.FindStringSubmatch(r.URL.Path); m != nil {
+		if r.Method != "GET" && r.Method != "HEAD" {
+			http.Error(w, "Only GET is supported", http.StatusMethodNotAllowed)
+			return
+		}
+		id, err := strconv.Atoi(m[1])
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := n.Delete(n.Key(&Source{ID: int64(i)})); err != nil {
+		data := struct {
+			Images []Image
+			Source Source
+		}{
+			Source: Source{ID: int64(id)},
+		}
+		if err := n.Get(&data.Source); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		q := datastore.NewQuery("Image").Order("__key__").Ancestor(n.Key(data.Source))
+		if _, err := n.GetAll(q, &data.Images); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := sourcesTmpl.Execute(w, data); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	if m := reSourceDelete.FindStringSubmatch(r.URL.Path); m != nil {
+		if r.Method != "POST" {
+			http.Error(w, "Only POST is supported", http.StatusMethodNotAllowed)
+			return
+		}
+		// TODO(maruel): XSRF token.
+		id, err := strconv.Atoi(m[1])
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := n.Delete(n.Key(&Source{ID: int64(id)})); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
