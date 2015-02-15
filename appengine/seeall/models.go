@@ -16,24 +16,35 @@ type GlobalConfig struct {
 
 // Key is an id starting a 1.
 type Source struct {
-	ID      int64     `datastore:"-" goon:"id"`
-	Who     string    `datastore:""`
-	Created time.Time `datastore:""`
-	Name    string    `datastore:""`
-	Details string    `datastore:",noindex"`
-	Secret  []byte    `datastore:",noindex"`
-	IP      string    `datastore:",noindex"`
+	ID          int64     `datastore:"-" goon:"id"`
+	Created     time.Time `datastore:""`
+	RemoteAddr  string    `datastore:""`
+	Who         string    `datastore:""`
+	Name        string    `datastore:""`
+	Details     string    `datastore:",noindex"`
+	Secret      []byte    `datastore:",noindex"`
+	WhitelistIP string    `datastore:",noindex"`
 }
 
 func (s *Source) SecretBase64() string {
 	return base64.URLEncoding.EncodeToString(s.Secret)
 }
 
+// Key is id==1, Parent == Source.
+type ImageStream struct {
+	ID       int64          `datastore:"-" goon:"id"`
+	Parent   *datastore.Key `datastore:"-" goon:"parent"`
+	Modified time.Time      `datastore:""`
+	NextID   int64          `datastore:""`
+}
+
 type Image struct {
-	ID      int64          `datastore:"-" goon:"id"`
-	Parent  *datastore.Key `datastore:"-" goon:"parent"`
-	Created time.Time      `datastore:""`
-	PNG     []byte         `datastore:",noindex"`
+	ID         int64          `datastore:"-" goon:"id"`
+	Parent     *datastore.Key `datastore:"-" goon:"parent"`
+	Created    time.Time      `datastore:""`
+	RemoteAddr string         `datastore:""`
+	Timestamp  time.Time      `datastore:""`
+	PNG        []byte         `datastore:",noindex"`
 }
 
 func (i *Image) PNGBase64() string {

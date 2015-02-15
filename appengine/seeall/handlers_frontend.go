@@ -8,33 +8,43 @@ import (
 	"crypto/rand"
 	"html/template"
 	"net/http"
-	"regexp"
 	"strconv"
 	"time"
 
 	"appengine"
 	"appengine/datastore"
 	"appengine/user"
+	"github.com/gorilla/mux"
 	"github.com/mjibson/goon"
 )
 
 func init() {
-	http.HandleFunc("/restricted/sources", sourcesHdlr)
-	http.HandleFunc("/restricted/sources/add", sourcesAddHdlr)
-	http.HandleFunc("/restricted/source/", sourceHdlr)
+	r := mux.NewRouter()
+	frontendRoute(r)
+	apiRoute(r)
+	http.Handle("/", r)
+}
+
+func frontendRoute(r *mux.Router) {
+	r.HandleFunc("/restricted/sources", GET(sourcesHdlr))
+	r.HandleFunc("/restricted/sources/add", POST(sourcesAddHdlr))
+	r.HandleFunc("/restricted/source/{id:[0-9]+}", GET(sourceHdlr))
+	r.HandleFunc("/restricted/source/{id:[0-9]+}/delete", POST(sourceDeleteHdlr))
 }
 
 var sourcesTmpl = template.Must(template.New("sources").Parse(`
 <html>
   <head>
     <title>See All Sources</title>
+		<style>
+		</style>
   </head>
   <body>
 		<h1>Sources</h1>
 		<ul>
 		{{range $index, $source := .Sources}}
 			<li>
-				{{$source.Who}} - {{$source.Created}} - {{$source.Name}} - {{$source.Details}} - {{$source.SecretBase64}} - {{$source.IP}}
+				{{$source.Who}} - {{$source.Created}} - <a href="/restricted/source/{{$source.ID}}">"{{$source.Name}}"</a> - "{{$source.Details}}" - "{{$source.SecretBase64}}" - {{$source.WhitelistIP}}
 				<form action="/restricted/source/{{with index $.SourceKeys $index}}{{.IntID}}{{end}}/delete" method="POST">
 					<input type="submit" value="Delete">
 				</form>
@@ -42,21 +52,36 @@ var sourcesTmpl = template.Must(template.New("sources").Parse(`
     {{end}}
 		</ul>
 		<form action="/restricted/sources/add" method="POST">
-			Name:<input type="text" name="Name"></input><br>
-			Description:<input type="text" name="Description"></input><br>
-			IP:<input type="text" name="IP"></input><br>
+			Name: <input type="text" name="Name"></input><br>
+			Description: <input type="text" name="Details"></input><br>
+			WhitelistIP: <input type="text" name="WhitelistIP" value="0.0.0.0/0"></input><br>
 			<input type="submit" value="Add">
 		</form>
   </body>
 </html>
 `))
 
-func sourcesHdlr(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" && r.Method != "HEAD" {
-		http.Error(w, "Only GET is supported", http.StatusMethodNotAllowed)
-		return
+func GET(f http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" && r.Method != "HEAD" {
+			http.Error(w, "Only GET is supported", http.StatusMethodNotAllowed)
+			return
+		}
+		f(w, r)
 	}
+}
 
+func POST(f http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Only POST is supported", http.StatusMethodNotAllowed)
+			return
+		}
+		f(w, r)
+	}
+}
+
+func sourcesHdlr(w http.ResponseWriter, r *http.Request) {
 	n := goon.NewGoon(r)
 	q := datastore.NewQuery("Source").Order("__key__")
 	data := struct {
@@ -75,10 +100,6 @@ func sourcesHdlr(w http.ResponseWriter, r *http.Request) {
 }
 
 func sourcesAddHdlr(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "Only POST is supported", http.StatusMethodNotAllowed)
-		return
-	}
 	c := appengine.NewContext(r)
 	u := user.Current(c)
 	n := goon.NewGoon(r)
@@ -89,33 +110,47 @@ func sourcesAddHdlr(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dummy := &Source{}
-	source := &Source{
-		Who:     u.String(),
-		Created: time.Now().UTC(),
-		Name:    r.FormValue("Name"),
-		Details: r.FormValue("Details"),
-		Secret:  random,
-		IP:      r.FormValue("IP"),
+	keys, err := datastore.NewQuery("Source").KeysOnly().Order("__key__").GetAll(c, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
-	for i := int64(1); ; i++ {
-		// TODO(maruel): datastore.RunInTransaction()
-		dummy.ID = i
-		if err := n.Get(dummy); err != datastore.ErrNoSuchEntity {
-			continue
+	dummy := &Source{}
+	if len(keys) != 0 {
+		dummy.ID = keys[len(keys)-1].IntID()
+	}
+	source := &Source{
+		Who:         u.String(),
+		Created:     time.Now().UTC(),
+		RemoteAddr:  r.RemoteAddr,
+		Name:        r.FormValue("Name"),
+		Details:     r.FormValue("Details"),
+		Secret:      random,
+		WhitelistIP: r.FormValue("WhitelistIP"),
+	}
+	is := &ImageStream{ID: 1}
+	entities := []interface{}{source, is}
+
+	opts := &datastore.TransactionOptions{}
+	for {
+		if err := n.RunInTransaction(func(tg *goon.Goon) error {
+			dummy.ID++
+			if err := tg.Get(dummy); err != datastore.ErrNoSuchEntity {
+				// Force to continue to loop.
+				return datastore.ErrNoSuchEntity
+			}
+			source.ID = dummy.ID
+			is.Parent = tg.Key(source)
+			if _, err := n.PutMulti(entities); err != nil {
+				return err
+			}
+			return nil
+		}, opts); err == nil {
+			break
 		}
-		source.ID = i
-		if _, err := n.Put(source); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		break
 	}
 	http.Redirect(w, r, "/restricted/sources", http.StatusFound)
 }
-
-var reSource = regexp.MustCompile("^/restricted/source/(\\d+)$")
-var reSourceDelete = regexp.MustCompile("^/restricted/source/(\\d+)/delete$")
 
 var sourceTmpl = template.Must(template.New("source").Parse(`
 <html>
@@ -124,6 +159,8 @@ var sourceTmpl = template.Must(template.New("source").Parse(`
   </head>
   <body>
 		<h1>Source {{.Source.Name}}</h1>
+		{{.Source}}<br>
+		{{.ImageStream}}
 		<ul>
 		{{range .Images}}
 			<img src="data:image/png;base64,{{.PNGBase64}}"></img><br>
@@ -134,54 +171,58 @@ var sourceTmpl = template.Must(template.New("source").Parse(`
 
 func sourceHdlr(w http.ResponseWriter, r *http.Request) {
 	n := goon.NewGoon(r)
-	if m := reSource.FindStringSubmatch(r.URL.Path); m != nil {
-		if r.Method != "GET" && r.Method != "HEAD" {
-			http.Error(w, "Only GET is supported", http.StatusMethodNotAllowed)
-			return
-		}
-		id, err := strconv.Atoi(m[1])
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		data := struct {
-			Images []Image
-			Source Source
-		}{
-			Source: Source{ID: int64(id)},
-		}
-		if err := n.Get(&data.Source); err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-		q := datastore.NewQuery("Image").Order("__key__").Ancestor(n.Key(data.Source))
-		if _, err := n.GetAll(q, &data.Images); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if err := sourcesTmpl.Execute(w, data); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
+	id, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	data := struct {
+		Source      Source
+		ImageStream ImageStream
+		Images      []Image
+	}{
+		Source:      Source{ID: int64(id)},
+		ImageStream: ImageStream{ID: 1},
+	}
+	data.ImageStream.Parent = n.Key(data.Source)
+	entities := []interface{}{&data.Source, &data.ImageStream}
+	if err := n.GetMulti(entities); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	items := data.ImageStream.NextID
+	if data.ImageStream.NextID > 16 {
+		items = 16
+	}
+	data.Images = make([]Image, items)
+	isKey := n.Key(data.ImageStream)
+	for i := range data.Images {
+		data.Images[i].ID = data.ImageStream.NextID - int64(i) - 1
+		data.Images[i].Parent = isKey
+	}
+	if err := n.GetMulti(data.Images); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := sourceTmpl.Execute(w, data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+	return
+}
 
-	if m := reSourceDelete.FindStringSubmatch(r.URL.Path); m != nil {
-		if r.Method != "POST" {
-			http.Error(w, "Only POST is supported", http.StatusMethodNotAllowed)
-			return
-		}
-		// TODO(maruel): XSRF token.
-		id, err := strconv.Atoi(m[1])
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if err := n.Delete(n.Key(&Source{ID: int64(id)})); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		http.Redirect(w, r, "/restricted/sources", http.StatusFound)
+func sourceDeleteHdlr(w http.ResponseWriter, r *http.Request) {
+	// TODO(maruel): XSRF token.
+	id, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	http.Error(w, "Not Found", http.StatusNotFound)
+	n := goon.NewGoon(r)
+	// Doesn't delete ImageStream.
+	if err := n.Delete(n.Key(&Source{ID: int64(id)})); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/restricted/sources", http.StatusFound)
+	return
 }
