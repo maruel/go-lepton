@@ -211,7 +211,7 @@ func sourceHdlr(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		err2 = n.Get(data.ImageStream)
+		err2 = n.Get(&data.ImageStream)
 	}()
 	wg.Wait()
 	if err1 != nil {
