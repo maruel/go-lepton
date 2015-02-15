@@ -6,9 +6,10 @@ package seeall
 
 import (
 	"crypto/rand"
-	"fmt"
 	"html/template"
 	"net/http"
+	"regexp"
+	"strconv"
 	"time"
 
 	"appengine"
@@ -17,13 +18,9 @@ import (
 )
 
 func init() {
-	http.HandleFunc("/", handler)
 	http.HandleFunc("/restricted/sources", sourcesHdlr)
 	http.HandleFunc("/restricted/sources/add", sourcesAddHdlr)
-}
-
-func handler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, "Hello, world!")
+	http.HandleFunc("/restricted/source/", sourceHdlr)
 }
 
 var sourcesTmpl = template.Must(template.New("sources").Parse(`
@@ -37,7 +34,7 @@ var sourcesTmpl = template.Must(template.New("sources").Parse(`
 		{{range $index, $source := .Sources}}
 			<li>
 				{{$source.Who}} - {{$source.Created}} - {{$source.Name}} - {{$source.Details}} - {{$source.SecretKeyBase64}} - {{$source.IP}}
-				<form action="/restricted/source/{{index .Keys $index}}/delete" method="POST">
+				<form action="/restricted/source/{{with index $.SourceKeys $index}}{{.IntID}}{{end}}/delete" method="POST">
 					<input type="submit" value="Delete">
 				</form>
 			</li>
@@ -112,4 +109,31 @@ func sourcesAddHdlr(w http.ResponseWriter, r *http.Request) {
 		break
 	}
 	http.Redirect(w, r, "/restricted/sources", http.StatusFound)
+}
+
+var reSourceDelete = regexp.MustCompile("^/restricted/source/(\\d+)/delete$")
+
+func sourceHdlr(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Only POST is supported", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Simple regexp parsing
+	c := appengine.NewContext(r)
+	if m := reSourceDelete.FindStringSubmatch(r.URL.Path); m != nil {
+		i, err := strconv.Atoi(m[1])
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		key := datastore.NewKey(c, "Source", "", int64(i), nil)
+		if err := datastore.Delete(c, key); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, "/restricted/sources", http.StatusFound)
+		return
+	}
+	http.Error(w, "Not Found", http.StatusNotFound)
 }
