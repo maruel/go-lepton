@@ -45,7 +45,7 @@ var sourcesTmpl = template.Must(template.New("sources").Parse(`
 		{{range $index, $source := .Sources}}
 			<li>
 				{{$source.Who}} - {{$source.Created}} - <a href="/restricted/source/{{$source.ID}}">"{{$source.Name}}"</a> - "{{$source.Details}}" - "{{$source.SecretBase64}}" - {{$source.WhitelistIP}}
-				<form action="/restricted/source/{{with index $.SourceKeys $index}}{{.IntID}}{{end}}/delete" method="POST">
+				<form action="/restricted/source/{{$source.ID}}/delete" method="POST">
 					<input type="submit" value="Delete">
 				</form>
 			</li>
@@ -85,15 +85,12 @@ func sourcesHdlr(w http.ResponseWriter, r *http.Request) {
 	n := goon.NewGoon(r)
 	q := datastore.NewQuery("Source").Order("__key__")
 	data := struct {
-		SourceKeys []*datastore.Key
-		Sources    []Source
+		Sources []Source
 	}{}
-	keys, err := n.GetAll(q, &data.Sources)
-	if err != nil {
+	if _, err := n.GetAll(q, &data.Sources); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	data.SourceKeys = keys
 	if err := sourcesTmpl.Execute(w, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
