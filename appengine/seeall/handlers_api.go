@@ -12,6 +12,7 @@ import (
 
 	"appengine/datastore"
 	"github.com/gorilla/mux"
+	"github.com/maruel/go-lepton/appengine/seeall/api"
 	"github.com/mjibson/goon"
 )
 
@@ -51,19 +52,8 @@ func jsonAPI(f http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-type PushRequestItem struct {
-	Timestamp time.Time
-	PNG       []byte
-}
-
-type PushRequest struct {
-	ID     int64
-	Secret string
-	Items  []PushRequestItem
-}
-
 func pushHdlr(w http.ResponseWriter, r *http.Request) {
-	req := &PushRequest{}
+	req := &api.PushRequest{}
 	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
 		errorJSON(w, err, http.StatusBadRequest)
 		return

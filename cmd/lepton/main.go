@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maruel/go-lepton/appengine/seeall/api"
 	"github.com/maruel/go-lepton/lepton"
 	"github.com/maruel/interrupt"
 )
@@ -119,16 +120,10 @@ func sendImg(img *lepton.LeptonBuffer) {
 		// TODO(maruel): Log.
 		return
 	}
-	req := &struct {
-		ID      int64
-		Secret  string
-		Created time.Time
-		PNG     []byte
-	}{
-		ID:      Config.ID,
-		Secret:  Config.Secret,
-		Created: time.Now().UTC(),
-		PNG:     w.Bytes(),
+	req := &api.PushRequest{
+		ID:     Config.ID,
+		Secret: Config.Secret,
+		Items:  []api.PushRequestItem{{Timestamp: time.Now().UTC(), PNG: w.Bytes()}},
 	}
 	w.Reset()
 	if err := json.NewEncoder(&w).Encode(req); err != nil {
@@ -152,6 +147,7 @@ var Config = struct {
 func mainImpl() error {
 	cpuprofile := flag.String("cpuprofile", "", "dump CPU profile in file")
 	port := flag.Int("port", 8010, "http port to listen on")
+	writeConfig := flag.Bool("writeConfig", false, "write an empty config file and exit")
 	flag.Parse()
 
 	if len(flag.Args()) != 0 {
@@ -170,12 +166,31 @@ func mainImpl() error {
 	interrupt.HandleCtrlC()
 
 	usr, _ := user.Current()
-	if f, err := os.Open(filepath.Join(usr.HomeDir, ".config", "lepton.json")); err == nil {
+	configDir := filepath.Join(usr.HomeDir, ".config", "lepton")
+	configPath := filepath.Join(configDir, "lepton.json")
+	if f, err := os.Open(configPath); err == nil {
 		if err := json.NewDecoder(f).Decode(&Config); err != nil {
 			f.Close()
 			return err
 		}
 		f.Close()
+	}
+	if *writeConfig {
+		if err := os.MkdirAll(configDir, 0700); err != nil {
+			return err
+		}
+		f, err := os.OpenFile(configPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		data, err := json.MarshalIndent(&Config, "", "  ")
+		if err != nil {
+			return err
+		}
+		data = append(data, '\n')
+		_, err = f.Write(data)
+		return err
 	}
 
 	l, err := lepton.MakeLepton()
