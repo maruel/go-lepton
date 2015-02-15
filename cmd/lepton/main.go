@@ -12,6 +12,7 @@ import (
 	"html/template"
 	"image"
 	"image/png"
+	"log"
 	"net/http"
 	"os"
 	"os/user"
@@ -117,8 +118,7 @@ func still16(w http.ResponseWriter, r *http.Request) {
 func sendImg(img *lepton.LeptonBuffer) {
 	var w bytes.Buffer
 	if err := png.Encode(&w, img); err != nil {
-		// TODO(maruel): Log.
-		return
+		panic(err)
 	}
 	req := &api.PushRequest{
 		ID:     Config.ID,
@@ -127,21 +127,22 @@ func sendImg(img *lepton.LeptonBuffer) {
 	}
 	w.Reset()
 	if err := json.NewEncoder(&w).Encode(req); err != nil {
-		// TODO(maruel): Log.
-		return
+		panic(err)
 	}
-	resp, err := http.Post(Config.URL, "application/json", &w)
+	url := "https://" + Config.Server + "/api/seeall/v1/push"
+	resp, err := http.Post(url, "application/json", &w)
 	if err != nil {
-		// TODO(maruel): Log.
+		log.Printf("Failed to post image: %s", err)
+	} else {
+		// TODO(maruel): Read response.
+		resp.Body.Close()
 	}
-	defer resp.Body.Close()
-	// TODO(maruel): Read response.
 }
 
 var Config = struct {
 	ID     int64
 	Secret string
-	URL    string
+	Server string
 }{}
 
 func mainImpl() error {
@@ -218,7 +219,7 @@ func mainImpl() error {
 		for {
 			// Processing is done in a separate loop to not miss a frame.
 			img := <-c
-			if Config.URL != "" {
+			if Config.Server != "" {
 				// TODO(maruel): Race condition with ring buffer.
 				// TODO(maruel): Use index, and sending timestamp.
 				go sendImg(img)
