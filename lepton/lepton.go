@@ -55,7 +55,7 @@ const (
 // LeptonBuffer implements image.Image. It is essentially a Gray16 but faster
 // since the Raspberry Pi is CPU constrained.
 type LeptonBuffer struct {
-	Pix [80 * 60]uint16
+	Pix [80 * 60]uint16 // 9600 bytes.
 	Min uint16
 	Max uint16
 }
@@ -77,12 +77,12 @@ func (l *LeptonBuffer) Gray16At(x, y int) uint16 {
 }
 
 // Scale reduces the dynamic range of a 14 bits down to 8 bits very naively.
-func Scale(dst *image.Gray, src *LeptonBuffer) {
-	floor := src.Min
-	delta := int(src.Max - floor)
+func (l *LeptonBuffer) Scale(dst *image.Gray) {
+	floor := l.Min
+	delta := int(l.Max - floor)
 	for y := 0; y < 60; y++ {
 		for x := 0; x < 80; x++ {
-			v := int(src.Gray16At(x, y)-floor) * 255 / delta
+			v := int(l.Gray16At(x, y)-floor) * 255 / delta
 			dst.Pix[y*80+x] = uint8(v)
 		}
 	}

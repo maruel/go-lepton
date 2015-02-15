@@ -43,16 +43,13 @@ func (i *imageRing) done(b *lepton.LeptonBuffer) {
 	}
 }
 
-type doubleBuffer struct {
-	lock        sync.Mutex
-	frontBuffer *image.Gray
-	backBuffer  *image.Gray
-	Stats       lepton.Stats
-	Min         uint16
-	Max         uint16
+type state struct {
+	lock  sync.Mutex
+	Img   *lepton.LeptonBuffer
+	Stats lepton.Stats
 }
 
-var currentImage doubleBuffer
+var currentState state
 
 var rootTmpl = template.Must(template.New("name").Parse(`
 	<html>
@@ -77,23 +74,25 @@ var rootTmpl = template.Must(template.New("name").Parse(`
 	<br>
 	{{.Stats}}
 	<br>
-	{{.Min}} - {{.Max}}
+	{{.Img.Min}} - {{.Img.Max}}
 	</body>
 	</html>`))
 
 func root(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
-	currentImage.lock.Lock()
-	rootTmpl.Execute(w, currentImage)
-	currentImage.lock.Unlock()
+	currentState.lock.Lock()
+	rootTmpl.Execute(w, currentState)
+	currentState.lock.Unlock()
 }
 
 func still(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
-	currentImage.lock.Lock()
-	defer currentImage.lock.Unlock()
-	png.Encode(w, currentImage.frontBuffer)
+	img := image.NewGray(image.Rect(0, 0, 80, 60))
+	currentState.lock.Lock()
+	currentState.Img.Scale(img)
+	currentState.lock.Unlock()
+	png.Encode(w, img)
 }
 
 func mainImpl() error {
@@ -125,10 +124,8 @@ func mainImpl() error {
 	}
 
 	c := make(chan *lepton.LeptonBuffer, 16)
-
-	currentImage.frontBuffer = image.NewGray(image.Rect(0, 0, 80, 60))
-	currentImage.backBuffer = image.NewGray(image.Rect(0, 0, 80, 60))
 	ring := makeImageRing()
+	currentState.Img = ring.get()
 
 	go func() {
 		for {
@@ -143,13 +140,10 @@ func mainImpl() error {
 		for {
 			// Processing is done in a separate loop to not miss a frame.
 			img := <-c
-			lepton.Scale(currentImage.backBuffer, img)
-			ring.done(img)
-			currentImage.lock.Lock()
-			currentImage.backBuffer, currentImage.frontBuffer = currentImage.frontBuffer, currentImage.backBuffer
-			currentImage.Min = img.Min
-			currentImage.Max = img.Max
-			currentImage.lock.Unlock()
+			currentState.lock.Lock()
+			ring.done(currentState.Img)
+			currentState.Img = img
+			currentState.lock.Unlock()
 		}
 	}()
 
@@ -161,9 +155,9 @@ func mainImpl() error {
 
 	for !interrupt.IsSet() {
 		stats := l.Stats()
-		currentImage.lock.Lock()
-		currentImage.Stats = stats
-		currentImage.lock.Unlock()
+		currentState.lock.Lock()
+		currentState.Stats = stats
+		currentState.lock.Unlock()
 		fmt.Printf("\r%d frames %d duped %d dummy %d badsync %d broken %d fail", stats.GoodFrames, stats.DuplicateFrames, stats.DummyLines, stats.SyncFailures, stats.BrokenPackets, stats.TransferFails)
 		time.Sleep(time.Second)
 	}
