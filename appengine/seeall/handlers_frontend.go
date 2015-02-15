@@ -149,6 +149,7 @@ func sourcesAddHdlr(w http.ResponseWriter, r *http.Request) {
 			var err2 error
 			wg.Add(1)
 			go func() {
+				defer wg.Done()
 				_, err2 = n.Put(is)
 			}()
 			wg.Wait()
@@ -181,6 +182,7 @@ var sourceTmpl = template.Must(template.New("source").Parse(`
 `))
 
 func sourceHdlr(w http.ResponseWriter, r *http.Request) {
+	c := appengine.NewContext(r)
 	n := goon.NewGoon(r)
 	id, err := strconv.Atoi(mux.Vars(r)["id"])
 	if err != nil {
@@ -208,6 +210,7 @@ func sourceHdlr(w http.ResponseWriter, r *http.Request) {
 	var err2 error
 	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		err2 = n.Get(data.ImageStream)
 	}()
 	wg.Wait()
@@ -223,6 +226,7 @@ func sourceHdlr(w http.ResponseWriter, r *http.Request) {
 	if data.ImageStream.NextID > 16 {
 		items = 16
 	}
+	c.Infof("index:%d; %d imgs", data.ImageStream.NextID, items)
 	data.Images = make([]Image, items)
 	isKey := n.Key(data.ImageStream)
 	for i := range data.Images {

@@ -298,7 +298,8 @@ func mainImpl() error {
 		currentState.lock.Unlock()
 
 		duration := time.Now().Sub(currentState.Start)
-		fmt.Printf("\r%d frames %d duped %d dummy %d badsync %d broken %d fail %d HTTP %d Imgs %v", stats.GoodFrames, stats.DuplicateFrames, stats.DummyLines, stats.SyncFailures, stats.BrokenPackets, stats.TransferFails, HTTPReqs, ImgsSent, duration.Seconds())
+		fmt := "\r%d frames %d duped %d dummy %d badsync %d broken %d fail %d HTTP %d Imgs %.1fs"
+		fmt.Printf(fmt, stats.GoodFrames, stats.DuplicateFrames, stats.DummyLines, stats.SyncFailures, stats.BrokenPackets, stats.TransferFails, HTTPReqs, ImgsSent, duration.Seconds())
 		time.Sleep(time.Second)
 	}
 	fmt.Print("\n")

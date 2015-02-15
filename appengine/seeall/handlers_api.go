@@ -9,11 +9,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
 	"sync"
 	"time"
 
+	"appengine"
 	"appengine/datastore"
 	"github.com/gorilla/mux"
 	"github.com/maruel/go-lepton/appengine/seeall/api"
@@ -32,10 +32,11 @@ func returnJSON(w http.ResponseWriter, ret interface{}) {
 	}
 }
 
-func errorJSON(w http.ResponseWriter, err error, status int) {
+func errorJSON(w http.ResponseWriter, r *http.Request, err error, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	log.Printf("Error:%s", err)
+	c := appengine.NewContext(r)
+	c.Errorf("Error:%s", err)
 	ret := &struct{ Error error }{err}
 	if err := json.NewEncoder(w).Encode(ret); err != nil {
 		panic(err)
@@ -45,12 +46,12 @@ func errorJSON(w http.ResponseWriter, err error, status int) {
 func jsonAPI(f http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			errorJSON(w, errors.New("Only POST is supported"), http.StatusMethodNotAllowed)
+			errorJSON(w, r, errors.New("Only POST is supported"), http.StatusMethodNotAllowed)
 			return
 		}
 		ct, ok := r.Header["Content-Type"]
 		if !ok || len(ct) != 1 || ct[0] != "application/json" {
-			errorJSON(w, errors.New("Requires Content-Type: application/json"), http.StatusBadRequest)
+			errorJSON(w, r, errors.New("Requires Content-Type: application/json"), http.StatusBadRequest)
 			return
 		}
 		f(w, r)
@@ -60,14 +61,15 @@ func jsonAPI(f http.HandlerFunc) http.HandlerFunc {
 func pushHdlr(w http.ResponseWriter, r *http.Request) {
 	req := &api.PushRequest{}
 	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
-		errorJSON(w, err, http.StatusBadRequest)
+		errorJSON(w, r, err, http.StatusBadRequest)
 		return
 	}
 	n := goon.NewGoon(r)
 	src := &Source{ID: req.ID}
-	log.Printf("ID:%d Secret:%s; %d imgs", req.ID, base64.URLEncoding.EncodeToString(req.Secret), len(req.Items))
+	c := appengine.NewContext(r)
+	c.Infof("ID:%d Secret:%s; %d imgs", req.ID, base64.URLEncoding.EncodeToString(req.Secret), len(req.Items))
 	if err := n.Get(src); err != nil {
-		errorJSON(w, err, http.StatusNotFound)
+		errorJSON(w, r, err, http.StatusNotFound)
 		return
 	}
 
@@ -75,12 +77,12 @@ func pushHdlr(w http.ResponseWriter, r *http.Request) {
 
 	// TODO(maruel): Use an HMAC instead of dumb pass around.
 	if !bytes.Equal(src.Secret, req.Secret) {
-		errorJSON(w, errors.New("incorrect Secret"), http.StatusBadRequest)
+		errorJSON(w, r, errors.New("incorrect Secret"), http.StatusBadRequest)
 		return
 	}
 
 	if len(req.Items) == 0 {
-		errorJSON(w, errors.New("no item"), http.StatusBadRequest)
+		errorJSON(w, r, errors.New("no item"), http.StatusBadRequest)
 		return
 	}
 
@@ -118,6 +120,7 @@ func pushHdlr(w http.ResponseWriter, r *http.Request) {
 		var err2 error
 		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			_, err2 = n.PutMulti(imgs)
 		}()
 		wg.Wait()
@@ -126,7 +129,7 @@ func pushHdlr(w http.ResponseWriter, r *http.Request) {
 		}
 		return err2
 	}, opts); err != nil {
-		errorJSON(w, err, http.StatusInternalServerError)
+		errorJSON(w, r, err, http.StatusInternalServerError)
 		return
 	}
 	returnJSON(w, &struct{ OK bool }{true})
