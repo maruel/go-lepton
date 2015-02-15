@@ -50,9 +50,11 @@ func (i *imageRing) done(b *lepton.LeptonBuffer) {
 }
 
 type state struct {
-	lock  sync.Mutex
-	Img   *lepton.LeptonBuffer
-	Stats lepton.Stats
+	lock     sync.Mutex
+	Img      *lepton.LeptonBuffer
+	Stats    lepton.Stats
+	ImgsSent int
+	HTTPReqs int
 }
 
 var currentState state
@@ -148,6 +150,10 @@ func sendImages(c <-chan *lepton.LeptonBuffer, ring *imageRing) {
 		currentState.lock.Unlock()
 
 		sendImgs(client, imgs)
+		currentState.lock.Lock()
+		currentState.ImgsSent += len(imgs)
+		currentState.HTTPReqs++
+		currentState.lock.Unlock()
 
 		for i := 0; i < len(imgs)-1; i++ {
 			ring.done(imgs[i])
@@ -285,8 +291,11 @@ func mainImpl() error {
 		stats := l.Stats()
 		currentState.lock.Lock()
 		currentState.Stats = stats
+		ImgsSent := currentState.ImgsSent
+		HTTPReqs := currentState.HTTPReqs
 		currentState.lock.Unlock()
-		fmt.Printf("\r%d frames %d duped %d dummy %d badsync %d broken %d fail", stats.GoodFrames, stats.DuplicateFrames, stats.DummyLines, stats.SyncFailures, stats.BrokenPackets, stats.TransferFails)
+
+		fmt.Printf("\r%d frames %d duped %d dummy %d badsync %d broken %d fail %d HTTP %d Imgs", stats.GoodFrames, stats.DuplicateFrames, stats.DummyLines, stats.SyncFailures, stats.BrokenPackets, stats.TransferFails, HTTPReqs, ImgsSent)
 		time.Sleep(time.Second)
 	}
 	fmt.Print("\n")
