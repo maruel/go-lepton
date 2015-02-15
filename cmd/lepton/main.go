@@ -50,6 +50,7 @@ func (i *imageRing) done(b *lepton.LeptonBuffer) {
 }
 
 type state struct {
+	Start    time.Time
 	lock     sync.Mutex
 	Img      *lepton.LeptonBuffer
 	Stats    lepton.Stats
@@ -256,6 +257,7 @@ func mainImpl() error {
 	c := make(chan *lepton.LeptonBuffer, 9*60)
 	ring := makeImageRing()
 	currentState.Img = ring.get()
+	currentState.Start = time.Now()
 
 	go func() {
 		for {
@@ -295,7 +297,8 @@ func mainImpl() error {
 		HTTPReqs := currentState.HTTPReqs
 		currentState.lock.Unlock()
 
-		fmt.Printf("\r%d frames %d duped %d dummy %d badsync %d broken %d fail %d HTTP %d Imgs", stats.GoodFrames, stats.DuplicateFrames, stats.DummyLines, stats.SyncFailures, stats.BrokenPackets, stats.TransferFails, HTTPReqs, ImgsSent)
+		duration := time.Now().Sub(currentState.Start)
+		fmt.Printf("\r%d frames %d duped %d dummy %d badsync %d broken %d fail %d HTTP %d Imgs %v", stats.GoodFrames, stats.DuplicateFrames, stats.DummyLines, stats.SyncFailures, stats.BrokenPackets, stats.TransferFails, HTTPReqs, ImgsSent, duration.Seconds())
 		time.Sleep(time.Second)
 	}
 	fmt.Print("\n")

@@ -47,6 +47,6 @@ handlers:
   secure: always
   login: admin
 
-# Save on CPU by not warming up.
-#inbound_services:
-#- warmup
+# The app will basically be unusable without it.
+inbound_services:
+- warmup
