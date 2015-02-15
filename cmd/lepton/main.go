@@ -115,17 +115,62 @@ func still16(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func sendImg(img *lepton.LeptonBuffer) {
-	var w bytes.Buffer
-	if err := png.Encode(&w, img); err != nil {
-		panic(err)
+func sendImages(c <-chan *lepton.LeptonBuffer, ring *imageRing) {
+	/*
+		// Disable compression because the bulk of data is PNGs and the CPU is slow.
+		var t http.Transport = http.DefaultTransport
+		t.DisableCompression = true
+		client := &http.Client{Transport: t}
+	*/
+	client := &http.Client{}
+
+	imgs := make([]*lepton.LeptonBuffer, 0, 9*5)
+	for {
+		// Reap as much as possible.
+		imgs = imgs[:0]
+		loop := true
+		for loop {
+			select {
+			case i := <-c:
+				imgs = append(imgs, i)
+			case <-interrupt.Channel:
+				return
+			default:
+				loop = false
+			}
+		}
+		if len(imgs) == 0 {
+			continue
+		}
+		currentState.lock.Lock()
+		ring.done(currentState.Img)
+		currentState.Img = imgs[len(imgs)-1]
+		currentState.lock.Unlock()
+
+		sendImgs(client, imgs)
+
+		for i := 0; i < len(imgs)-1; i++ {
+			ring.done(imgs[i])
+		}
 	}
+}
+
+func sendImgs(client *http.Client, imgs []*lepton.LeptonBuffer) {
 	req := &api.PushRequest{
 		ID:     Config.ID,
 		Secret: Config.Secret,
-		Items:  []api.PushRequestItem{{Timestamp: time.Now().UTC(), PNG: w.Bytes()}},
+		Items:  make([]api.PushRequestItem, len(imgs)),
 	}
-	w.Reset()
+	now := time.Now().UTC()
+	var w bytes.Buffer
+	for i, img := range imgs {
+		if err := png.Encode(&w, img); err != nil {
+			panic(err)
+		}
+		req.Items[i].Timestamp = now
+		req.Items[i].PNG = w.Bytes()
+		w.Reset()
+	}
 	if err := json.NewEncoder(&w).Encode(req); err != nil {
 		panic(err)
 	}
@@ -202,7 +247,7 @@ func mainImpl() error {
 		return err
 	}
 
-	c := make(chan *lepton.LeptonBuffer, 16)
+	c := make(chan *lepton.LeptonBuffer, 9*60)
 	ring := makeImageRing()
 	currentState.Img = ring.get()
 
@@ -215,21 +260,19 @@ func mainImpl() error {
 		}
 	}()
 
-	go func() {
-		for {
-			// Processing is done in a separate loop to not miss a frame.
-			img := <-c
-			if Config.Server != "" {
-				// TODO(maruel): Race condition with ring buffer.
-				// TODO(maruel): Use index, and sending timestamp.
-				go sendImg(img)
+	if Config.Server != "" {
+		go sendImages(c, ring)
+	} else {
+		go func() {
+			for {
+				img := <-c
+				currentState.lock.Lock()
+				ring.done(currentState.Img)
+				currentState.Img = img
+				currentState.lock.Unlock()
 			}
-			currentState.lock.Lock()
-			ring.done(currentState.Img)
-			currentState.Img = img
-			currentState.lock.Unlock()
-		}
-	}()
+		}()
+	}
 
 	http.HandleFunc("/", root)
 	http.HandleFunc("/favicon.ico", still)
