@@ -31,6 +31,8 @@ func frontendRoute(r *mux.Router) {
 	r.HandleFunc("/restricted/sources/add", POST(sourcesAddHdlr))
 	r.HandleFunc("/restricted/source/{id:[0-9]+}", GET(sourceHdlr))
 	r.HandleFunc("/restricted/source/{id:[0-9]+}/delete", POST(sourceDeleteHdlr))
+	// TODO(maruel): Handler for a specific image, so it can be cached.
+	//r.HandleFunc("/restricted/source/{id:[0-9]+}/image/{img:[0-9]+}", POST(sourceImageHdlr))
 }
 
 var sourcesTmpl = template.Must(template.New("sources").Parse(`
@@ -197,7 +199,7 @@ func sourceHdlr(w http.ResponseWriter, r *http.Request) {
 		Source:      Source{ID: int64(id)},
 		ImageStream: ImageStream{ID: 1},
 	}
-	data.ImageStream.Parent = n.Key(data.Source)
+	data.ImageStream.Parent = n.Key(&data.Source)
 	// Sadly goon supports only one entity type per call, so do two concurrent
 	// calls.
 	var wg sync.WaitGroup
@@ -215,27 +217,31 @@ func sourceHdlr(w http.ResponseWriter, r *http.Request) {
 	}()
 	wg.Wait()
 	if err1 != nil {
+		c.Errorf("Source is missing")
 		http.Error(w, err1.Error(), http.StatusNotFound)
 		return
 	}
 	if err2 != nil {
+		c.Errorf("ImageStream is missing")
 		http.Error(w, err2.Error(), http.StatusNotFound)
 		return
 	}
 	items := data.ImageStream.NextID
-	if data.ImageStream.NextID > 16 {
-		items = 16
+	if data.ImageStream.NextID > 5 {
+		items = 5
 	}
 	c.Infof("index:%d; %d imgs", data.ImageStream.NextID, items)
 	data.Images = make([]Image, items)
-	isKey := n.Key(data.ImageStream)
+	isKey := n.Key(&data.ImageStream)
 	for i := range data.Images {
 		data.Images[i].ID = data.ImageStream.NextID - int64(i) - 1
+		c.Infof("Image id %d", data.Images[i].ID)
 		data.Images[i].Parent = isKey
 	}
-	if err := n.GetMulti(data.Images); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	if err := n.GetMulti(&data.Images); err != nil {
+		c.Errorf("Images are missing")
+		//http.Error(w, err.Error(), http.StatusInternalServerError)
+		//return
 	}
 	if err := sourceTmpl.Execute(w, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

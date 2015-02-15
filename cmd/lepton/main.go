@@ -201,6 +201,7 @@ func mainImpl() error {
 	cpuprofile := flag.String("cpuprofile", "", "dump CPU profile in file")
 	port := flag.Int("port", 8010, "http port to listen on")
 	writeConfig := flag.Bool("writeConfig", false, "write an empty config file and exit")
+	noPush := flag.Bool("nopush", false, "do not push to server even if configured")
 	flag.Parse()
 
 	if len(flag.Args()) != 0 {
@@ -268,7 +269,7 @@ func mainImpl() error {
 		}
 	}()
 
-	if Config.Server != "" {
+	if Config.Server != "" && !*noPush {
 		go sendImages(c, ring)
 	} else {
 		go func() {
