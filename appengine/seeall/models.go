@@ -7,6 +7,8 @@ package seeall
 import (
 	"encoding/base64"
 	"time"
+
+	"appengine/datastore"
 )
 
 type GlobalConfig struct {
@@ -14,6 +16,7 @@ type GlobalConfig struct {
 
 // Key is an id starting a 1.
 type Source struct {
+	ID      int64     `datastore:"-" goon:"id"`
 	Who     string    `datastore:""`
 	Created time.Time `datastore:""`
 	Name    string    `datastore:""`
@@ -27,7 +30,8 @@ func (s *Source) SecretKeyBase64() string {
 }
 
 type Image struct {
-	Who     string    `datastore:""`
-	Created time.Time `datastore:""`
-	PNG     []byte    `datastore:"noindex"`
+	ID      int64          `datastore:"-" goon:"id"`
+	Parent  *datastore.Key `datastore:"-" goon:"parent"`
+	Created time.Time      `datastore:""`
+	PNG     []byte         `datastore:",noindex"`
 }

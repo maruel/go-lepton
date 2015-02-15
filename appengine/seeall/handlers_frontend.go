@@ -15,6 +15,7 @@ import (
 	"appengine"
 	"appengine/datastore"
 	"appengine/user"
+	"github.com/mjibson/goon"
 )
 
 func init() {
@@ -51,18 +52,18 @@ var sourcesTmpl = template.Must(template.New("sources").Parse(`
 `))
 
 func sourcesHdlr(w http.ResponseWriter, r *http.Request) {
-	c := appengine.NewContext(r)
 	if r.Method != "GET" && r.Method != "HEAD" {
 		http.Error(w, "Only GET is supported", http.StatusMethodNotAllowed)
 		return
 	}
 
+	n := goon.NewGoon(r)
 	q := datastore.NewQuery("Source").Order("__key__")
 	data := struct {
 		SourceKeys []*datastore.Key
 		Sources    []Source
 	}{}
-	keys, err := q.GetAll(c, &data.Sources)
+	keys, err := n.GetAll(q, &data.Sources)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -80,6 +81,7 @@ func sourcesAddHdlr(w http.ResponseWriter, r *http.Request) {
 	}
 	c := appengine.NewContext(r)
 	u := user.Current(c)
+	n := goon.NewGoon(r)
 
 	random := make([]byte, 8)
 	if _, err := rand.Read(random); err != nil {
@@ -98,11 +100,12 @@ func sourcesAddHdlr(w http.ResponseWriter, r *http.Request) {
 	}
 	for i := int64(1); ; i++ {
 		// TODO(maruel): datastore.RunInTransaction()
-		key := datastore.NewKey(c, "Source", "", i, nil)
-		if err := datastore.Get(c, key, dummy); err != datastore.ErrNoSuchEntity {
+		dummy.ID = i
+		if err := n.Get(dummy); err != datastore.ErrNoSuchEntity {
 			continue
 		}
-		if _, err := datastore.Put(c, key, source); err != nil {
+		source.ID = i
+		if _, err := n.Put(source); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -120,15 +123,14 @@ func sourceHdlr(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Simple regexp parsing
-	c := appengine.NewContext(r)
+	n := goon.NewGoon(r)
 	if m := reSourceDelete.FindStringSubmatch(r.URL.Path); m != nil {
 		i, err := strconv.Atoi(m[1])
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		key := datastore.NewKey(c, "Source", "", int64(i), nil)
-		if err := datastore.Delete(c, key); err != nil {
+		if err := n.Delete(n.Key(&Source{ID: int64(i)})); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
