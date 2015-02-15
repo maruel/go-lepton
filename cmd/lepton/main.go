@@ -193,7 +193,7 @@ func sendImgs(client *http.Client, imgs []*lepton.LeptonBuffer) {
 
 var Config = struct {
 	ID     int64
-	Secret string
+	Secret []byte
 	Server string
 }{}
 
