@@ -15,6 +15,6 @@ type PushRequestItem struct {
 
 type PushRequest struct {
 	ID     int64
-	Secret string
+	Secret []byte
 	Items  []PushRequestItem
 }

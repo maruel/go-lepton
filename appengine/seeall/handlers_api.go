@@ -5,8 +5,10 @@
 package seeall
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -32,6 +34,7 @@ func returnJSON(w http.ResponseWriter, ret interface{}) {
 func errorJSON(w http.ResponseWriter, err error, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+	log.Printf("Error:%s", err)
 	ret := &struct{ Error error }{err}
 	if err := json.NewEncoder(w).Encode(ret); err != nil {
 		panic(err)
@@ -61,6 +64,7 @@ func pushHdlr(w http.ResponseWriter, r *http.Request) {
 	}
 	n := goon.NewGoon(r)
 	src := &Source{ID: req.ID}
+	log.Printf("ID:%d Secret:%s; %d imgs", req.ID, base64.EncodeToString(req.Secret), len(req.Items))
 	if err := n.Get(src); err != nil {
 		errorJSON(w, err, http.StatusNotFound)
 		return
@@ -68,7 +72,8 @@ func pushHdlr(w http.ResponseWriter, r *http.Request) {
 
 	// TODO(maruel): r.RemoteAddr against src.WhitelistIP.
 
-	if src.SecretBase64() != req.Secret {
+	// TODO(maruel): Use an HMAC instead of dumb pass around.
+	if src.Secret != req.Secret {
 		errorJSON(w, errors.New("incorrect Secret"), http.StatusBadRequest)
 		return
 	}

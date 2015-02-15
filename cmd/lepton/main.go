@@ -129,10 +129,10 @@ func sendImages(c <-chan *lepton.LeptonBuffer, ring *imageRing) {
 
 	imgs := make([]*lepton.LeptonBuffer, 0, 9*5)
 	for {
-		// Reap as much as possible.
+		// Do not send more than 30 images at a time.
 		imgs = imgs[:0]
 		loop := true
-		for loop {
+		for loop && len(imgs) < 30 {
 			select {
 			case i := <-c:
 				imgs = append(imgs, i)
