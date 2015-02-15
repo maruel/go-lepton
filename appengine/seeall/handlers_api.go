@@ -34,9 +34,10 @@ func jsonAPI(f http.HandlerFunc) http.HandlerFunc {
 func pushHdlr(w http.ResponseWriter, r *http.Request) {
 	// TODO(maruel): All results as json.
 	req := &struct {
-		ID     int64
-		Secret string
-		PNG    []byte
+		ID      int64
+		Secret  string
+		Created time.Time
+		PNG     []byte
 	}{}
 	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

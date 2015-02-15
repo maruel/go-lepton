@@ -5,6 +5,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"html/template"
@@ -12,6 +14,8 @@ import (
 	"image/png"
 	"net/http"
 	"os"
+	"os/user"
+	"path/filepath"
 	"runtime/pprof"
 	"sync"
 	"time"
@@ -81,7 +85,9 @@ var rootTmpl = template.Must(template.New("name").Parse(`
 func root(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	currentState.lock.Lock()
-	rootTmpl.Execute(w, currentState)
+	if err := rootTmpl.Execute(w, currentState); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 	currentState.lock.Unlock()
 }
 
@@ -92,8 +98,56 @@ func still(w http.ResponseWriter, r *http.Request) {
 	currentState.lock.Lock()
 	currentState.Img.Scale(img)
 	currentState.lock.Unlock()
-	png.Encode(w, img)
+	if err := png.Encode(w, img); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
+
+func still16(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+	currentState.lock.Lock()
+	defer currentState.lock.Unlock()
+	if err := png.Encode(w, currentState.Img); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func sendImg(img *lepton.LeptonBuffer) {
+	var w bytes.Buffer
+	if err := png.Encode(&w, img); err != nil {
+		// TODO(maruel): Log.
+		return
+	}
+	req := &struct {
+		ID      int64
+		Secret  string
+		Created time.Time
+		PNG     []byte
+	}{
+		ID:      Config.ID,
+		Secret:  Config.Secret,
+		Created: time.Now().UTC(),
+		PNG:     w.Bytes(),
+	}
+	w.Reset()
+	if err := json.NewEncoder(&w).Encode(req); err != nil {
+		// TODO(maruel): Log.
+		return
+	}
+	resp, err := http.Post(Config.URL, "application/json", &w)
+	if err != nil {
+		// TODO(maruel): Log.
+	}
+	defer resp.Body.Close()
+	// TODO(maruel): Read response.
+}
+
+var Config = struct {
+	ID     int64
+	Secret string
+	URL    string
+}{}
 
 func mainImpl() error {
 	cpuprofile := flag.String("cpuprofile", "", "dump CPU profile in file")
@@ -114,6 +168,15 @@ func mainImpl() error {
 	}
 
 	interrupt.HandleCtrlC()
+
+	usr, _ := user.Current()
+	if f, err := os.Open(filepath.Join(usr.HomeDir, ".config", "lepton.json")); err == nil {
+		if err := json.NewDecoder(f).Decode(&Config); err != nil {
+			f.Close()
+			return err
+		}
+		f.Close()
+	}
 
 	l, err := lepton.MakeLepton()
 	if l != nil {
@@ -140,6 +203,11 @@ func mainImpl() error {
 		for {
 			// Processing is done in a separate loop to not miss a frame.
 			img := <-c
+			if Config.URL != "" {
+				// TODO(maruel): Race condition with ring buffer.
+				// TODO(maruel): Use index, and sending timestamp.
+				go sendImg(img)
+			}
 			currentState.lock.Lock()
 			ring.done(currentState.Img)
 			currentState.Img = img
@@ -150,6 +218,7 @@ func mainImpl() error {
 	http.HandleFunc("/", root)
 	http.HandleFunc("/favicon.ico", still)
 	http.HandleFunc("/still.png", still)
+	http.HandleFunc("/still16.png", still16)
 	fmt.Printf("Listening on %d\n", *port)
 	go http.ListenAndServe(fmt.Sprintf(":%d", *port), nil)
 
