@@ -139,6 +139,7 @@ func (l *Lepton) GetSerial() (uint64, error) {
 	if err := l.i2c.GetAttribute(SysSerialNumber, p); err != nil {
 		return 0, err
 	}
+	log.Printf("serial: 0x%04x %04x %04x %04x", p[0], p[1], p[2], p[3])
 	return uint64(p[3])<<48 | uint64(p[2])<<32 | uint64(p[1])<<16 | uint64(p[0]), nil
 }
 
@@ -148,6 +149,7 @@ func (l *Lepton) GetUptime() (time.Duration, error) {
 	if err := l.i2c.GetAttribute(SysUptime, p); err != nil {
 		return 0, err
 	}
+	log.Printf("uptime: 0x%04x %04x", p[0], p[1])
 	return time.Duration(uint32(p[1])<<16|uint32(p[0])) * time.Millisecond, nil
 }
 
@@ -157,6 +159,7 @@ func (l *Lepton) GetTemperatureHousing() (int, error) {
 	if err := l.i2c.GetAttribute(SysHousingTemperature, p); err != nil {
 		return 0, err
 	}
+	log.Printf("temp: 0x%04x", p[0])
 	return int(p[0]) * 10, nil
 }
 
@@ -166,6 +169,7 @@ func (l *Lepton) GetTemperature() (int, error) {
 	if err := l.i2c.GetAttribute(SysTemperature, p); err != nil {
 		return 0, err
 	}
+	log.Printf("temp: 0x%04x", p[0])
 	return int(p[0]) * 10, nil
 }
 

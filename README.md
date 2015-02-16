@@ -109,6 +109,18 @@ Then add
     @reboot /root/start_lepton.sh
 
 
+Verification
+------------
+
+Running the following command should have the corresponding output:
+
+    $ lepton -nopush -query
+    Lepton serial: 0x12345
+    Lepton uptime: 15368.12s
+    Lepton temp: 302.48K
+    Lepton temp: 298.08K (housing)
+
+
 Performance
 -----------
 

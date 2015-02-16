@@ -7,6 +7,8 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
+	"log"
 	"os"
 	"runtime/pprof"
 	"time"
@@ -40,10 +42,16 @@ func mainImpl() error {
 	cpuprofile := flag.String("cpuprofile", "", "dump CPU profile in file")
 	port := flag.Int("port", 8010, "http port to listen on")
 	noPush := flag.Bool("nopush", false, "do not push to server even if configured")
+	verbose := flag.Bool("verbose", false, "enable log output")
+	query := flag.Bool("query", false, "query the camera then quit")
 	flag.Parse()
 
 	if len(flag.Args()) != 0 {
 		return fmt.Errorf("unexpected argument: %s", flag.Args())
+	}
+
+	if !*verbose {
+		log.SetOutput(ioutil.Discard)
 	}
 
 	if *cpuprofile != "" {
@@ -56,11 +64,6 @@ func mainImpl() error {
 	}
 
 	interrupt.HandleCtrlC()
-
-	var s *Seeder
-	if !*noPush {
-		s = LoadSeeder()
-	}
 
 	l, err := lepton.MakeLepton("", 0)
 	if l != nil {
@@ -81,6 +84,14 @@ func mainImpl() error {
 	}
 	if temp, err := l.GetTemperatureHousing(); err == nil {
 		fmt.Printf("Lepton temp: %.2fK (housing)\n", float32(temp)*0.001)
+	}
+	if *query {
+		return nil
+	}
+
+	var s *Seeder
+	if !*noPush {
+		s = LoadSeeder()
 	}
 
 	c := make(chan *lepton.LeptonBuffer, 9*60)

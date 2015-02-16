@@ -212,7 +212,6 @@ func (i *I2C) Read(b []byte) (int, error) {
 	if err == nil && n != len(b) {
 		err = io.ErrShortBuffer
 	}
-	//log.Printf("i2c.Read() = %v, %v", b, err)
 	return n, err
 }
 
@@ -222,7 +221,6 @@ func (i *I2C) Write(b []byte) (int, error) {
 		panic("lepton CCI requires 16 bits aligned write")
 	}
 	n, err := i.f.Write(b)
-	//log.Printf("i2c.Write(%v) = %v", b, err)
 	return n, err
 }
 
@@ -279,7 +277,7 @@ func (i *I2C) GetAttribute(command Command, result []uint16) error {
 	return nil
 }
 
-/*
+/* TODO(maruel): Add.
 func (i *I2C) RunCommand(addr Command, in []byte, out []byte) error {
 	return nil
 }
@@ -300,9 +298,8 @@ func (i *I2C) ReadData(addr RegisterAddress, data []uint16) error {
 		return err
 	}
 	for i := range data {
-		data[i] = uint16(tmp[2*i]<<8) | uint16(tmp[2*i+1])
+		data[i] = uint16(tmp[2*i])<<8 | uint16(tmp[2*i+1])
 	}
-	//log.Printf("i2c.readdata(0x%02X) = %v", addr, data)
 	return nil
 }
 
@@ -318,7 +315,6 @@ func (i *I2C) WriteData(addr RegisterAddress, data []uint16) error {
 		tmp[2*i+2] = byte(d >> 8)
 		tmp[2*i+3] = byte(d & 0xff)
 	}
-	//log.Printf("i2c.writedata(0x%02X, %v)", addr, data)
 	_, err := i.Write(tmp)
 	return err
 }
