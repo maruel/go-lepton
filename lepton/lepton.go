@@ -45,6 +45,17 @@ import (
 	"time"
 )
 
+type CameraStatus uint32
+
+// Valid values for Status.
+const (
+	SystemReady              = CameraStatus(0)
+	SystemInitializing       = CameraStatus(1)
+	SystemInLowPowerMode     = CameraStatus(2)
+	SystemGoingIntoStandby   = CameraStatus(3)
+	SystemFlatFieldInProcess = CameraStatus(4)
+)
+
 type Stats struct {
 	LastFail        error
 	GoodFrames      int
@@ -62,6 +73,7 @@ type Lepton struct {
 	currentLine int
 	packet      [164]uint8 // one line is sent as a SPI packet.
 	stats       Stats
+	serial      uint64
 }
 
 func MakeLepton(path string, speed int) (*Lepton, error) {
@@ -116,7 +128,7 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 }
 
 type Status struct {
-	CameraStatus uint32
+	CameraStatus CameraStatus
 	CommandCount uint16
 	Reserved     uint16
 }
@@ -127,7 +139,7 @@ func (l *Lepton) GetStatus() (*Status, error) {
 		return nil, err
 	}
 	return &Status{
-		CameraStatus: uint32(p[1])<<16 | uint32(p[0]),
+		CameraStatus: CameraStatus(uint32(p[1])<<16 | uint32(p[0])),
 		CommandCount: p[2],
 		Reserved:     p[3],
 	}, nil
@@ -135,12 +147,15 @@ func (l *Lepton) GetStatus() (*Status, error) {
 
 // GetSerial returns the FLIR Lepton serial number.
 func (l *Lepton) GetSerial() (uint64, error) {
-	p := make([]uint16, 4)
-	if err := l.i2c.GetAttribute(SysSerialNumber, p); err != nil {
-		return 0, err
+	if l.serial == 0 {
+		p := make([]uint16, 4)
+		if err := l.i2c.GetAttribute(SysSerialNumber, p); err != nil {
+			return 0, err
+		}
+		log.Printf("serial: 0x%04x %04x %04x %04x", p[0], p[1], p[2], p[3])
+		l.serial = uint64(p[3])<<48 | uint64(p[2])<<32 | uint64(p[1])<<16 | uint64(p[0])
 	}
-	log.Printf("serial: 0x%04x %04x %04x %04x", p[0], p[1], p[2], p[3])
-	return uint64(p[3])<<48 | uint64(p[2])<<32 | uint64(p[1])<<16 | uint64(p[0]), nil
+	return l.serial, nil
 }
 
 // GetUptime returns the uptime. Rolls over after 1193 hours.
@@ -215,14 +230,6 @@ func (l *Lepton) ReadImg(r *LeptonBuffer) {
 }
 
 // Private details.
-
-const (
-	SystemReady              = 0
-	SystemInitializing       = 1
-	SystemInLowPowerMode     = 2
-	SystemGoingIntoStandby   = 3
-	SystemFlatFieldInProcess = 4
-)
 
 // readLine reads one line at a time.
 //
