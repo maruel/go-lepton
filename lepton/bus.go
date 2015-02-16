@@ -14,6 +14,14 @@ import (
 	"unsafe"
 )
 
+// Command to be sent over i²c.
+type Command uint16
+
+const (
+	SysStatus       = Command(0x0204)
+	SysSerialNumber = Command(0x0208)
+)
+
 type SPI struct {
 	f *os.File
 }
@@ -92,7 +100,12 @@ func MakeI2C() (*I2C, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &I2C{f: f}, nil
+	i := &I2C{f: f}
+	if err := i.SetAddress(i2cAddress); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return i, nil
 }
 
 func (i *I2C) Close() error {
@@ -108,7 +121,11 @@ func (i *I2C) Read(b []byte) (int, error) {
 	if len(b)&1 != 0 {
 		panic("lepton CCI requires 16 bits aligned read")
 	}
-	return i.f.Read(b)
+	n, err := i.f.Read(b)
+	if err == nil && n != len(b) {
+		err = io.ErrShortBuffer
+	}
+	return n, err
 }
 
 func (i *I2C) Write(b []byte) (int, error) {
@@ -118,60 +135,61 @@ func (i *I2C) Write(b []byte) (int, error) {
 	return i.f.Write(b)
 }
 
-type i2cMSG struct {
-	Addr   uint16
-	flags  uint16
-	length uint16
-	buf    uintptr
-}
-
-type i2cIOCData struct {
-	msgs uintptr
-	nmsg uint32
-}
-
-func (i *I2C) Cmd(cmdID uint16, data []byte, result []byte) error {
-	// Very broken, reading SDK atm.
-	/*
-		msgs := []i2cMSG{
-			{
-				addr:   uint16(regID),
-				flags:  0,
-				length: 2,
-				buf:    uintptr(unsafe.Pointer(&reg)),
-			},
-			{
-				addr:   uint16(addr),
-				flags:  rd,
-				length: uint16(len(value)),
-				buf:    uintptr(unsafe.Pointer(result)),
-			},
-		}
-		packets := i2cIOCData{uintptr(unsafe.Pointer(&messages)), len(msgs)}
-		if err := l.ioctl(0x0707, uintptr(unsafe.Pointer(&packets))); err != nil {
-			return err
-		}
-		return nil
-	/*/
-	cmdWord := make([]byte, 2, 2+len(data))
-	// Big endian.
-	cmdWord[0] = byte(cmdID >> 8)
-	cmdWord[1] = byte(cmdID & 0xff)
-	cmdWord = append(cmdWord, data...)
-	if _, err := i.Write(cmdWord); err != nil {
-		return fmt.Errorf("i2c write fail: %s", err)
-	}
-	if len(result) != 0 {
-		n, err := i.Read(result)
-		if n != len(result) {
-			return io.ErrShortBuffer
-		}
-		if err != nil {
-			return fmt.Errorf("i2c read fail: %s", err)
+// WaitIdle waits for camera to be ready.
+func (i *I2C) WaitIdle() (uint16, error) {
+	for {
+		value, err := i.readRegister(i2cRegStatus)
+		if err != nil || value&i2cBusyBit == 0 {
+			return value, err
 		}
 	}
+}
+
+func (i *I2C) GetAttribute(command Command, result []uint16) error {
+	if len(result)&1 != 0 {
+		panic("lepton CCI requires 16 bits aligned read")
+	}
+	wordLength := uint16(len(result) / 2)
+	if _, err := i.WaitIdle(); err != nil {
+		return err
+	}
+	if err := i.writeRegister(i2cRegDataLength, wordLength); err != nil {
+		return err
+	}
+	if err := i.writeRegister(i2cRegCommandID, uint16(command)); err != nil {
+		return err
+	}
+	status, err := i.WaitIdle()
+	if err != nil {
+		return err
+	}
+	if status&0xff00 != 0 {
+		return fmt.Errorf("error 0x%x", status>>8)
+	}
+	if wordLength <= 16 {
+		err = i.readData(i2cRegData0, result)
+	} else if wordLength <= 1024 {
+		err = i.readData(i2cRegDataBuffer0, result)
+	} else {
+		panic("buffer too large")
+	}
+	if err != nil {
+		return err
+	}
+	/* TODO(maruel): Verify CRC:
+	crc, err = i.readRegister(i2cRegDataCRC)
+	if err != nil {
+		return err
+	}
+	if expected := CalculateCRC16(result); expected != crc {
+		return errors.New("invalid crc")
+	}
+	*/
 	return nil
-	//*/
+}
+
+func (i *I2C) RunCommand(addr Command, in []byte, out []byte) error {
+	return nil
 }
 
 func (i *I2C) SetAddress(address byte) error {
@@ -185,17 +203,80 @@ func (i *I2C) ioctl(op uint, arg uintptr) error {
 	return nil
 }
 
-/*
-func (i *I2C) set(op uint, arg uint64) error {
-	return i.ioctl(op, arg)
-}
-*/
 // Private details.
+
+type registerAddress uint16
 
 // Drivers IOCTL control codes.
 const (
 	spiIOCMode        = 0x16B01
 	spiIOCBitsPerWord = 0x16B03
 	spiIOCMaxSpeedHz  = 0x46B04
-	i2cIOCSetAddress  = 0x0703 // I2C_SLAVE
+
+	i2cAddress       = 0x2A
+	i2cIOCSetAddress = 0x0703 // I2C_SLAVE
+
+	i2cRegPower = registerAddress(iota * 2)
+	i2cRegStatus
+	i2cRegCommandID
+	i2cRegDataLength
+	i2cRegData0
+	i2cRegData1
+	i2cRegData2
+	i2cRegData3
+	i2cRegData4
+	i2cRegData5
+	i2cRegData6
+	i2cRegData7
+	i2cRegData8
+	i2cRegData9
+	i2cRegData10
+	i2cRegData11
+	i2cRegData12
+	i2cRegData13
+	i2cRegData14
+	i2cRegData15
+	i2cRegDataCRC
+	i2cRegDataBuffer0 = registerAddress(0xF800)
+	i2cRegDataBuffer1 = registerAddress(0xFC00)
+
+	i2cBusyBit = 0x1
 )
+
+func (i *I2C) readRegister(addr registerAddress) (uint16, error) {
+	data := []uint16{0}
+	err := i.readData(addr, data)
+	return data[0], err
+}
+
+func (i *I2C) readData(addr registerAddress, data []uint16) error {
+	if _, err := i.Write([]byte{byte(addr >> 8), byte(addr & 0xff)}); err != nil {
+		return err
+	}
+	tmp := make([]byte, len(data)*2)
+	if _, err := i.Read(tmp); err != nil {
+		return err
+	}
+	for i, d := range data {
+		tmp[2*i] = byte(d >> 8)
+		tmp[2*i+1] = byte(d & 0xff)
+	}
+	return nil
+}
+
+func (i *I2C) writeRegister(addr registerAddress, data uint16) error {
+	return i.writeData(addr, []uint16{data})
+}
+
+func (i *I2C) writeData(addr registerAddress, data []uint16) error {
+	tmp := make([]byte, len(data)*2)
+	tmp[0] = byte(addr >> 8)
+	tmp[1] = byte(addr & 0xff)
+	for i, d := range data {
+		tmp[2*i+2] = byte(d >> 8)
+		tmp[2*i+3] = byte(d & 0xff)
+	}
+	_, err := i.Write(tmp)
+	return err
+	return nil
+}
