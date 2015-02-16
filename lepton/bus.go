@@ -9,6 +9,7 @@ package lepton
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"syscall"
 	"unsafe"
@@ -18,8 +19,39 @@ import (
 type Command uint16
 
 const (
-	SysStatus       = Command(0x0204)
-	SysSerialNumber = Command(0x0208)
+	AGCEnable                 = Command(0x0100) // 2   GET/SET
+	AgcRoiSelect              = Command(0x0108) // 4   GET/SET
+	AgcHistogramStats         = Command(0x010C) // 4   GET
+	AgcHeqDampFactor          = Command(0x0124) // 1   GET/SET
+	AgcHeqClipLimitHigh       = Command(0x012C) // 1   GET/SET
+	AgcHeqClipLimitLow        = Command(0x0130) // 1   GET/SET
+	AgcHeqEmptyCounts         = Command(0x013C) // 1   GET/SET
+	AgcHeqOutputScaleFactor   = Command(0x0144) // 2   GET/SET
+	AgcCalculationEnable      = Command(0x0148) // 2   GET/SET
+	SysPing                   = Command(0x0200) // 0   RUN
+	SysStatus                 = Command(0x0204) // 4   GET
+	SysSerialNumber           = Command(0x0208) // 4   GET
+	SysUptime                 = Command(0x020C) // 2   GET
+	SysHousingTemperature     = Command(0x0210) // 1   GET
+	SysTemperature            = Command(0x0214) // 1   GET
+	SysTelemetryEnable        = Command(0x0218) // 2   GET/SET
+	SysTelemetryLocation      = Command(0x021C) // 2   GET/SET
+	SysFlatFieldFrames        = Command(0x0224) // 2   GET/SET It's an enum
+	SysCustomSerialNumber     = Command(0x0228) // 16  GET It's a string
+	SysRoiSceneStats          = Command(0x022C) // 4   GET
+	SysRoiSceneSelect         = Command(0x0230) // 4   GET/SET
+	SysThermalShutdownCount   = Command(0x0234) // 1   GET Number of times it exceeded 80C
+	SysShutterPosition        = Command(0x0238) // 2   GET/SET
+	SysFFCMode                = Command(0x023C) // 20  GET/SET Manual control
+	SysFCCRunNormalization    = Command(0x0240) // 0   RUN
+	SysFCCStatus              = Command(0x0244) // 2   GET
+	VidColorLookupSelect      = Command(0x0304) // 2   GET/SET
+	VidColorLookupTransfer    = Command(0x0308) // 512 GET/SET
+	VidFocusCalculationEnable = Command(0x030C) // 2   GET/SET
+	VidFocusRoiSelect         = Command(0x0310) // 4   GET/SET
+	VidFocusMetricThreshold   = Command(0x0314) // 2   GET/SET
+	VidFocusMetricGet         = Command(0x0318) // 2   GET
+	VidVideoFreezeEnable      = Command(0x0324) // 2   GET/SET
 )
 
 type SPI struct {
@@ -105,6 +137,19 @@ func MakeI2C() (*I2C, error) {
 		f.Close()
 		return nil, err
 	}
+
+	// Wait for the device to be booted.
+	for {
+		status, err := i.WaitIdle()
+		if err != nil {
+			f.Close()
+			return nil, err
+		}
+		if status == statusBootStatusBit|statusBootModeBit {
+			break
+		}
+		log.Printf("i2c: lepton not yet booted: 0x%02x", status)
+	}
 	return i, nil
 }
 
@@ -125,6 +170,7 @@ func (i *I2C) Read(b []byte) (int, error) {
 	if err == nil && n != len(b) {
 		err = io.ErrShortBuffer
 	}
+	//log.Printf("i2c.Read() = %v, %v", b, err)
 	return n, err
 }
 
@@ -132,23 +178,23 @@ func (i *I2C) Write(b []byte) (int, error) {
 	if len(b)&1 != 0 {
 		panic("lepton CCI requires 16 bits aligned write")
 	}
-	return i.f.Write(b)
+	n, err := i.f.Write(b)
+	//log.Printf("i2c.Write(%v) = %v", b, err)
+	return n, err
 }
 
 // WaitIdle waits for camera to be ready.
 func (i *I2C) WaitIdle() (uint16, error) {
 	for {
 		value, err := i.readRegister(i2cRegStatus)
-		if err != nil || value&i2cBusyBit == 0 {
+		if err != nil || value&statusBusyBit == 0 {
 			return value, err
 		}
+		log.Printf("i2c.WaitIdle(): device busy %x", value)
 	}
 }
 
 func (i *I2C) GetAttribute(command Command, result []uint16) error {
-	if len(result)&1 != 0 {
-		panic("lepton CCI requires 16 bits aligned read")
-	}
 	wordLength := uint16(len(result) / 2)
 	if _, err := i.WaitIdle(); err != nil {
 		return err
@@ -216,31 +262,33 @@ const (
 	i2cAddress       = 0x2A
 	i2cIOCSetAddress = 0x0703 // I2C_SLAVE
 
-	i2cRegPower = registerAddress(iota * 2)
-	i2cRegStatus
-	i2cRegCommandID
-	i2cRegDataLength
-	i2cRegData0
-	i2cRegData1
-	i2cRegData2
-	i2cRegData3
-	i2cRegData4
-	i2cRegData5
-	i2cRegData6
-	i2cRegData7
-	i2cRegData8
-	i2cRegData9
-	i2cRegData10
-	i2cRegData11
-	i2cRegData12
-	i2cRegData13
-	i2cRegData14
-	i2cRegData15
-	i2cRegDataCRC
+	i2cRegPower       = registerAddress(0)
+	i2cRegStatus      = registerAddress(2)
+	i2cRegCommandID   = registerAddress(4)
+	i2cRegDataLength  = registerAddress(6)
+	i2cRegData0       = registerAddress(8)
+	i2cRegData1       = registerAddress(10)
+	i2cRegData2       = registerAddress(12)
+	i2cRegData3       = registerAddress(14)
+	i2cRegData4       = registerAddress(16)
+	i2cRegData5       = registerAddress(18)
+	i2cRegData6       = registerAddress(20)
+	i2cRegData7       = registerAddress(22)
+	i2cRegData8       = registerAddress(24)
+	i2cRegData9       = registerAddress(26)
+	i2cRegData10      = registerAddress(28)
+	i2cRegData11      = registerAddress(30)
+	i2cRegData12      = registerAddress(32)
+	i2cRegData13      = registerAddress(34)
+	i2cRegData14      = registerAddress(36)
+	i2cRegData15      = registerAddress(38)
+	i2cRegDataCRC     = registerAddress(40)
 	i2cRegDataBuffer0 = registerAddress(0xF800)
 	i2cRegDataBuffer1 = registerAddress(0xFC00)
 
-	i2cBusyBit = 0x1
+	statusBusyBit       = 0x1
+	statusBootModeBit   = 0x2
+	statusBootStatusBit = 0x4
 )
 
 func (i *I2C) readRegister(addr registerAddress) (uint16, error) {
@@ -257,10 +305,10 @@ func (i *I2C) readData(addr registerAddress, data []uint16) error {
 	if _, err := i.Read(tmp); err != nil {
 		return err
 	}
-	for i, d := range data {
-		tmp[2*i] = byte(d >> 8)
-		tmp[2*i+1] = byte(d & 0xff)
+	for i := range data {
+		data[i] = uint16(tmp[2*i]<<8) | uint16(tmp[2*i+1])
 	}
+	//log.Printf("i2c.readdata(0x%02X) = %v", addr, data)
 	return nil
 }
 
@@ -269,14 +317,14 @@ func (i *I2C) writeRegister(addr registerAddress, data uint16) error {
 }
 
 func (i *I2C) writeData(addr registerAddress, data []uint16) error {
-	tmp := make([]byte, len(data)*2)
+	tmp := make([]byte, len(data)*2+2)
 	tmp[0] = byte(addr >> 8)
 	tmp[1] = byte(addr & 0xff)
 	for i, d := range data {
 		tmp[2*i+2] = byte(d >> 8)
 		tmp[2*i+3] = byte(d & 0xff)
 	}
+	//log.Printf("i2c.writedata(0x%02X, %v)", addr, data)
 	_, err := i.Write(tmp)
 	return err
-	return nil
 }

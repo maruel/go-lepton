@@ -110,11 +110,6 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 	if status.camStatus != SystemReady {
 		log.Printf("WARNING: camera is not ready: %s", status)
 	}
-	serial, err := out.GetSerial()
-	if err != nil {
-		return nil, err
-	}
-	log.Printf("Serial: %x", serial)
 	spi = nil
 	i2c = nil
 	return out, nil
@@ -127,23 +122,51 @@ type Status struct {
 }
 
 func (l *Lepton) GetStatus() (*Status, error) {
-	p := make([]byte, 8)
-	if err := l.i2c.RunCommand(SysStatus, nil, p); err != nil {
+	p := make([]uint16, 4)
+	if err := l.i2c.GetAttribute(SysStatus, p); err != nil {
 		return nil, err
 	}
 	return &Status{
-		camStatus:    uint32(p[0])<<24 | uint32(p[1])<<16 | uint32(p[2])<<8 | uint32(p[3]),
-		commandCount: uint16(p[4])<<8 | uint16(p[5]),
-		reserved:     uint16(p[6])<<8 | uint16(p[7]),
+		camStatus:    uint32(p[0])<<16 | uint32(p[1]),
+		commandCount: p[2],
+		reserved:     p[3],
 	}, nil
 }
 
+// GetSerial returns the FLIR Lepton serial number.
 func (l *Lepton) GetSerial() (uint64, error) {
 	p := make([]uint16, 4)
 	if err := l.i2c.GetAttribute(SysSerialNumber, p); err != nil {
 		return 0, err
 	}
-	return uint64(p[0])<<56 | uint64(p[1])<<48 | uint64(p[2])<<40 | uint64(p[3])<<32 | uint64(p[4])<<24 | uint64(p[5])<<16 | uint64(p[6])<<8 | uint64(p[7]), nil
+	return uint64(p[0])<<48 | uint64(p[1])<<32 | uint64(p[2])<<16 | uint64(p[3]), nil
+}
+
+// GetUptime returns the uptime in millisecond. Rolls over after 1193 hours.
+func (l *Lepton) GetUptime() (uint32, error) {
+	p := []uint16{0, 0}
+	if err := l.i2c.GetAttribute(SysUptime, p); err != nil {
+		return 0, err
+	}
+	return uint32(p[0])<<16 | uint32(p[1]), nil
+}
+
+// GetTemperatureHousing returns the temperature in Kelvin.
+func (l *Lepton) GetTemperatureHousing() (uint16, error) {
+	p := []uint16{0}
+	if err := l.i2c.GetAttribute(SysHousingTemperature, p); err != nil {
+		return 0, err
+	}
+	return p[0], nil
+}
+
+// GetTemperature returns the temperature in Kelvin.
+func (l *Lepton) GetTemperature() (uint16, error) {
+	p := []uint16{0}
+	if err := l.i2c.GetAttribute(SysTemperature, p); err != nil {
+		return 0, err
+	}
+	return p[0], nil
 }
 
 func (l *Lepton) Close() error {

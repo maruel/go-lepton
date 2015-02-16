@@ -70,6 +70,19 @@ func mainImpl() error {
 		return err
 	}
 
+	if serial, err := l.GetSerial(); err == nil {
+		fmt.Printf("Lepton serial: 0x%x\n", serial)
+	}
+	if uptime, err := l.GetUptime(); err == nil {
+		fmt.Printf("Lepton uptime: %dms\n", uptime)
+	}
+	if temp, err := l.GetTemperature(); err == nil {
+		fmt.Printf("Lepton temp: %dK\n", temp)
+	}
+	if temp, err := l.GetTemperatureHousing(); err == nil {
+		fmt.Printf("Lepton temp: %dK (housing)\n", temp)
+	}
+
 	c := make(chan *lepton.LeptonBuffer, 9*60)
 	var d chan *lepton.LeptonBuffer
 	if s != nil {
