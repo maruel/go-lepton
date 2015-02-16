@@ -130,20 +130,21 @@ func (i *I2C) Cmd(cmdID int, data []byte, result []byte) error {
 }
 
 func (i *I2C) SetAddress(address byte) error {
-	return i.set(i2cIOCSetAddress, uint64(address))
+	return i.ioctl(i2cIOCSetAddress, uintptr(address))
 }
 
-func (i *I2C) ioctl(op uint, arg unsafe.Pointer) error {
-	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, i.f.Fd(), uintptr(op), uintptr(arg)); errno != 0 {
+func (i *I2C) ioctl(op uint, arg uintptr) error {
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, i.f.Fd(), uintptr(op), arg); errno != 0 {
 		return fmt.Errorf("i2c ioctl: %s", syscall.Errno(errno))
 	}
 	return nil
 }
 
+/*
 func (i *I2C) set(op uint, arg uint64) error {
-	return i.ioctl(op, unsafe.Pointer(&arg))
+	return i.ioctl(op, arg)
 }
-
+*/
 // Private details.
 
 // Drivers IOCTL control codes.

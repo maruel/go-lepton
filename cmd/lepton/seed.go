@@ -7,6 +7,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"image/png"
 	"io/ioutil"
 	"log"
@@ -145,5 +146,6 @@ func LoadSeeder() *Seeder {
 	if !s.config.isValid() {
 		return nil
 	}
+	fmt.Printf("Sending to %s as ID %d\n", s.config.Server, s.config.ID)
 	return s
 }
