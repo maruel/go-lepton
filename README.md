@@ -70,8 +70,8 @@ the device by running the following:
 
     sudo groupadd -f --system spi
     sudo adduser $USER spi
-    echo 'SUBSYSTEM=="spidev", GROUP="spi"' | sudo tee --append /etc/udev/rules.d/90-spi.rules > /dev/null
-    echo 'SUBSYSTEM=="i2c-dev", GROUP="spi"' | sudo tee --append /etc/udev/rules.d/90-i2c.rules > /dev/null
+    echo 'SUBSYSTEM=="spidev", GROUP="spi"' | sudo tee /etc/udev/rules.d/90-spi.rules
+    echo 'SUBSYSTEM=="i2c-dev", GROUP="spi"' | sudo tee /etc/udev/rules.d/90-i2c.rules
     sudo shutdown -r now
 
 This removes the requirement of running random program as root just to access
@@ -100,7 +100,7 @@ much faster than cross-compiling and transferring the file in.
 
 Install it as a crontab @reboot, e.g.:
 
-    echo 'su - $USER $GOPATH/src/github.com/maruel/go-lepton/run.sh' | sudo tee --append /root/start_lepton.sh > /dev/null
+    echo "su - $USER $GOPATH/src/github.com/maruel/go-lepton/run.sh" | sudo tee /root/start_lepton.sh
     sudo chmod +x /root/start_lepton.sh
     sudo crontab -e
 
