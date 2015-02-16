@@ -101,6 +101,7 @@ func mainImpl() error {
 		go s.sendImages(d)
 	}
 
+	fmt.Printf("\n")
 	printStats(l, s)
 	return nil
 }

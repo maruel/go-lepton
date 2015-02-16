@@ -102,10 +102,18 @@ func (i *I2C) Close() error {
 }
 
 func (i *I2C) Read(b []byte) (int, error) {
+	if len(b)&1 != 0 {
+		// Lepton-specific.
+		panic("need 16 bits read")
+	}
 	return i.f.Read(b)
 }
 
 func (i *I2C) Write(b []byte) (int, error) {
+	if len(b)&1 != 0 {
+		// Lepton-specific.
+		panic("need 16 bits write")
+	}
 	return i.f.Write(b)
 }
 

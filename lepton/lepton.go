@@ -104,11 +104,14 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 		return nil, err
 	}
 	// Send a ping to ensure the device is working.
-	stat := make([]byte, 8)
-	if err := i2c.Cmd(i2cSysStatus, nil, stat); err != nil {
+	p := make([]byte, 8)
+	if err := i2c.Cmd(i2cSysStatus, nil, p); err != nil {
 		return nil, err
 	}
-	log.Printf("i2c status: %v", bytesToStatus(stat))
+	status := bytesToStatus(p)
+	if status.camStatus != SystemReady {
+		log.Printf("WARNING: i2c status: %v", status)
+	}
 
 	out := &Lepton{spi: spi, i2c: i2c, currentLine: -1}
 	spi = nil
@@ -177,6 +180,12 @@ func (l *Lepton) ReadImg(r *LeptonBuffer) {
 const (
 	i2cAddress   = 0x2A
 	i2cSysStatus = 0x0204
+
+	SystemReady              = 0
+	SystemInitializing       = 1
+	SystemInLowPowerMode     = 2
+	SystemGoingIntoStandby   = 3
+	SystemFlatFieldInProcess = 4
 )
 
 // readLine reads one line at a time.
