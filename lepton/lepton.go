@@ -6,7 +6,11 @@
 // port.
 //
 // References:
-// http://www.pureengineering.com/projects/lepton
+// Official FLIR Lepton FAQ:
+//   http://www.flir.com/cvs/cores/knowledgebase/browse.cfm?CFTREEITEMKEY=914
+//
+// DIY:
+//   http://www.pureengineering.com/projects/lepton
 //
 // FLIR LEPTON® Long Wave Infrared (LWIR) Datasheet
 //   https://drive.google.com/file/d/0B3wmCw6bdPqFblZsZ3l4SXM4R28/view
