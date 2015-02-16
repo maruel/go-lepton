@@ -103,7 +103,7 @@ func (i *I2C) Close() error {
 
 func (i *I2C) Read(b []byte) (int, error) {
 	if len(b)&1 != 0 {
-		// Lepton-specific.
+		// Lepton specific.
 		panic("need 16 bits read")
 	}
 	return i.f.Read(b)
@@ -111,14 +111,15 @@ func (i *I2C) Read(b []byte) (int, error) {
 
 func (i *I2C) Write(b []byte) (int, error) {
 	if len(b)&1 != 0 {
-		// Lepton-specific.
+		// Lepton specific.
 		panic("need 16 bits write")
 	}
 	return i.f.Write(b)
 }
 
-func (i *I2C) Cmd(cmdID int, data []byte, result []byte) error {
-	cmdWord := make([]byte, 2, len(data)+2)
+func (i *I2C) Cmd(cmdID uint16, data []byte, result []byte) error {
+	// Lepton specific.
+	cmdWord := make([]byte, 2, 2+len(data))
 	cmdWord[0] = byte(cmdID >> 8)
 	cmdWord[1] = byte(cmdID & 0xff)
 	cmdWord = append(cmdWord, data...)

@@ -103,34 +103,50 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 	if err := i2c.SetAddress(i2cAddress); err != nil {
 		return nil, err
 	}
+
 	// Send a ping to ensure the device is working.
-	p := make([]byte, 8)
-	if err := i2c.Cmd(i2cSysStatus, nil, p); err != nil {
+	out := &Lepton{spi: spi, i2c: i2c, currentLine: -1}
+	status, err := out.GetStatus()
+	if err != nil {
 		return nil, err
 	}
-	status := bytesToStatus(p)
 	if status.camStatus != SystemReady {
-		log.Printf("WARNING: i2c status: %v", status)
+		log.Printf("WARNING: camera is not ready: %s", status)
 	}
-
-	out := &Lepton{spi: spi, i2c: i2c, currentLine: -1}
+	serial, err := out.GetSerial()
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("Serial: %x", serial)
 	spi = nil
 	i2c = nil
 	return out, nil
 }
 
-type lepStatus struct {
+type Status struct {
 	camStatus    uint32
 	commandCount uint16
 	reserved     uint16
 }
 
-func bytesToStatus(p []byte) lepStatus {
-	return lepStatus{
+func (l *Lepton) GetStatus() (*Status, error) {
+	p := make([]byte, 8)
+	if err := l.i2c.Cmd(i2cSysStatus, nil, p); err != nil {
+		return nil, err
+	}
+	return &Status{
 		camStatus:    uint32(p[0])<<24 | uint32(p[1])<<16 | uint32(p[2])<<8 | uint32(p[3]),
 		commandCount: uint16(p[4])<<8 | uint16(p[5]),
 		reserved:     uint16(p[6])<<8 | uint16(p[7]),
+	}, nil
+}
+
+func (l *Lepton) GetSerial() (uint64, error) {
+	p := make([]byte, 8)
+	if err := l.i2c.Cmd(i2cSysSerialNumber, nil, p); err != nil {
+		return 0, err
 	}
+	return uint64(p[0])<<56 | uint64(p[1])<<48 | uint64(p[2])<<40 | uint64(p[3])<<32 | uint64(p[4])<<24 | uint64(p[5])<<16 | uint64(p[6])<<8 | uint64(p[7]), nil
 }
 
 func (l *Lepton) Close() error {
@@ -178,8 +194,9 @@ func (l *Lepton) ReadImg(r *LeptonBuffer) {
 
 // Lepton commands
 const (
-	i2cAddress   = 0x2A
-	i2cSysStatus = 0x0204
+	i2cAddress         = 0x2A
+	i2cSysStatus       = 0x0204
+	i2cSysSerialNumber = 0x0208
 
 	SystemReady              = 0
 	SystemInitializing       = 1
