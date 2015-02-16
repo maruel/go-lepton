@@ -131,7 +131,7 @@ type Status struct {
 
 func (l *Lepton) GetStatus() (*Status, error) {
 	p := make([]byte, 8)
-	if err := l.i2c.Cmd(i2cSysStatus, nil, p); err != nil {
+	if err := l.i2c.Cmd(i2cCmdSysStatus, nil, p); err != nil {
 		return nil, err
 	}
 	return &Status{
@@ -143,7 +143,7 @@ func (l *Lepton) GetStatus() (*Status, error) {
 
 func (l *Lepton) GetSerial() (uint64, error) {
 	p := make([]byte, 8)
-	if err := l.i2c.Cmd(i2cSysSerialNumber, nil, p); err != nil {
+	if err := l.i2c.Cmd(i2cCmdSysSerialNumber, nil, p); err != nil {
 		return 0, err
 	}
 	return uint64(p[0])<<56 | uint64(p[1])<<48 | uint64(p[2])<<40 | uint64(p[3])<<32 | uint64(p[4])<<24 | uint64(p[5])<<16 | uint64(p[6])<<8 | uint64(p[7]), nil
@@ -194,9 +194,13 @@ func (l *Lepton) ReadImg(r *LeptonBuffer) {
 
 // Lepton commands
 const (
-	i2cAddress         = 0x2A
-	i2cSysStatus       = 0x0204
-	i2cSysSerialNumber = 0x0208
+	i2cAddress            = 0x2A
+	i2cCmdSysStatus       = 0x0204
+	i2cCmdSysSerialNumber = 0x0208
+	i2cRegPower           = 0x0
+	i2cRegStatus          = 0x2
+	i2cRegCommandID       = 0x4
+	i2cRegDataLength      = 0x6
 
 	SystemReady              = 0
 	SystemInitializing       = 1

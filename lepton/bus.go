@@ -79,6 +79,9 @@ func (s *SPI) ioctl(op uint, arg unsafe.Pointer) error {
 
 ///
 
+// I2C is the Lepton specific Command and Control Interface (CCI).
+//
+// It's big endian.
 type I2C struct {
 	f *os.File
 }
@@ -103,23 +106,55 @@ func (i *I2C) Close() error {
 
 func (i *I2C) Read(b []byte) (int, error) {
 	if len(b)&1 != 0 {
-		// Lepton specific.
-		panic("need 16 bits read")
+		panic("lepton CCI requires 16 bits aligned read")
 	}
 	return i.f.Read(b)
 }
 
 func (i *I2C) Write(b []byte) (int, error) {
 	if len(b)&1 != 0 {
-		// Lepton specific.
-		panic("need 16 bits write")
+		panic("lepton CCI requires 16 bits aligned write")
 	}
 	return i.f.Write(b)
 }
 
+type i2cMSG struct {
+	Addr   uint16
+	flags  uint16
+	length uint16
+	buf    uintptr
+}
+
+type i2cIOCData struct {
+	msgs uintptr
+	nmsg uint32
+}
+
 func (i *I2C) Cmd(cmdID uint16, data []byte, result []byte) error {
-	// Lepton specific.
+	// Very broken, reading SDK atm.
+	/*
+		msgs := []i2cMSG{
+			{
+				addr:   uint16(regID),
+				flags:  0,
+				length: 2,
+				buf:    uintptr(unsafe.Pointer(&reg)),
+			},
+			{
+				addr:   uint16(addr),
+				flags:  rd,
+				length: uint16(len(value)),
+				buf:    uintptr(unsafe.Pointer(result)),
+			},
+		}
+		packets := i2cIOCData{uintptr(unsafe.Pointer(&messages)), len(msgs)}
+		if err := l.ioctl(0x0707, uintptr(unsafe.Pointer(&packets))); err != nil {
+			return err
+		}
+		return nil
+	/*/
 	cmdWord := make([]byte, 2, 2+len(data))
+	// Big endian.
 	cmdWord[0] = byte(cmdID >> 8)
 	cmdWord[1] = byte(cmdID & 0xff)
 	cmdWord = append(cmdWord, data...)
@@ -136,6 +171,7 @@ func (i *I2C) Cmd(cmdID uint16, data []byte, result []byte) error {
 		}
 	}
 	return nil
+	//*/
 }
 
 func (i *I2C) SetAddress(address byte) error {
@@ -161,5 +197,5 @@ const (
 	spiIOCMode        = 0x16B01
 	spiIOCBitsPerWord = 0x16B03
 	spiIOCMaxSpeedHz  = 0x46B04
-	i2cIOCSetAddress  = 0x0703
+	i2cIOCSetAddress  = 0x0703 // I2C_SLAVE
 )
