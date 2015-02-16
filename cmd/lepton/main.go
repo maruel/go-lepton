@@ -56,7 +56,7 @@ func mainImpl() error {
 
 	s := LoadSeeder()
 
-	l, err := lepton.MakeLepton()
+	l, err := lepton.MakeLepton("", 0)
 	if l != nil {
 		defer l.Close()
 	}

@@ -24,6 +24,7 @@
 // Lepton™ Software Interface Description Document (IDD):
 //   (Application level and SDK doc)
 //   https://drive.google.com/file/d/0B3wmCw6bdPqFOHlQbExFbWlXS0k/view
+//   p. 24    i²c command format.
 //   p. 36-37 Ping and Status, implement first to ensure i²c works.
 //   p. 42-43 Telemetry enable.
 //   Radiometry is not documented (!?)
@@ -33,21 +34,11 @@
 package lepton
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"os"
-	"syscall"
 	"time"
-	"unsafe"
-)
-
-const (
-	spiIOCWrMode        = 0x40016B01
-	spiIOCWrBitsPerWord = 0x40016B03
-	spiIOCWrMaxSpeedHz  = 0x40046B04
-
-	spiIOCRdMode        = 0x80016B01
-	spiIOCRdBitsPerWord = 0x80016B03
-	spiIOCRdMaxSpeedHz  = 0x80046B04
 )
 
 type Stats struct {
@@ -61,68 +52,91 @@ type Stats struct {
 }
 
 type Lepton struct {
-	f           *os.File
+	spi         *SPI
+	i2c         *I2C
 	currentImg  *LeptonBuffer
 	currentLine int
 	packet      [164]uint8 // one line is sent as a SPI packet.
 	stats       Stats
 }
 
-func MakeLepton() (*Lepton, error) {
+func MakeLepton(path string, speed int) (*Lepton, error) {
 	// Max rate supported by FLIR Lepton is 20Mhz. Minimum usable rate is ~4Mhz
-	// to sustain framerate.  Low rate is less likely to get electromagnetic
-	// interference and reduces unnecessary CPU consumption by reducing the
-	// number of dummy packets. spi_bcm2708 supports a limited number of
-	// frequencies so the actual value will differ. See http://elinux.org/RPi_SPI.
-	f, err := os.OpenFile("/dev/spidev0.0", os.O_RDWR, os.ModeExclusive)
+	// to sustain framerate. Sadly the Lepton will inconditionally send 27fps,
+	// even if the effective rate is 9fps. Lower rate is less likely to get
+	// electromagnetic interference and reduces unnecessary CPU consumption by
+	// reducing the number of dummy packets.
+	if speed == 0 {
+		// spi_bcm2708 supports a limited number of frequencies so the actual value
+		// will differ. See http://elinux.org/RPi_SPI.
+		// Actual rate will be 7.8Mhz or 15.6Mhz.
+		// TODO(maruel): Figure out a way to determine if the driver decides to
+		// round down or up.
+		speed = 7900000
+	}
+	if speed < 3900000 {
+		return nil, errors.New("speed specified is too slow")
+	}
+	spi, err := MakeSPI(path, speed)
+	defer func() {
+		if spi != nil {
+			spi.Close()
+		}
+	}()
 	if err != nil {
 		return nil, err
 	}
-	out := &Lepton{f: f, currentLine: -1}
 
-	mode := uint8(3)
-	if err := out.ioctl(spiIOCWrMode, uintptr(unsafe.Pointer(&mode))); err != nil {
-		return out, err
+	i2c, err := MakeI2C()
+	defer func() {
+		if i2c != nil {
+			i2c.Close()
+		}
+	}()
+	if err != nil {
+		return nil, err
 	}
-	if err := out.ioctl(spiIOCRdMode, uintptr(unsafe.Pointer(&mode))); err != nil {
-		return out, err
+	if err := i2c.SetAddress(i2cAddress); err != nil {
+		return nil, err
 	}
-	if mode != 3 {
-		return out, fmt.Errorf("unexpected mode %d", mode)
+	// Send a ping to ensure the device is working.
+	stat := make([]byte, 8)
+	if err := i2c.Cmd(i2cSysStatus, nil, stat); err != nil {
+		return nil, err
 	}
+	log.Printf("i2c status: %v", bytesToStatus(stat))
 
-	bits := uint8(8)
-	if err := out.ioctl(spiIOCWrBitsPerWord, uintptr(unsafe.Pointer(&bits))); err != nil {
-		return out, err
-	}
-	if err := out.ioctl(spiIOCRdBitsPerWord, uintptr(unsafe.Pointer(&bits))); err != nil {
-		return out, err
-	}
-	if bits != 8 {
-		return out, fmt.Errorf("unexpected bits %d", bits)
-	}
-
-	speed := uint32(8000000)
-	if err := out.ioctl(spiIOCWrMaxSpeedHz, uintptr(unsafe.Pointer(&speed))); err != nil {
-		return out, err
-	}
-	if err := out.ioctl(spiIOCRdMaxSpeedHz, uintptr(unsafe.Pointer(&speed))); err != nil {
-		return out, err
-	}
-	if speed != 8000000 {
-		return out, fmt.Errorf("unexpected speed %d", bits)
-	}
-
+	out := &Lepton{spi: spi, i2c: i2c, currentLine: -1}
+	spi = nil
+	i2c = nil
 	return out, nil
 }
 
-func (l *Lepton) Close() error {
-	if l.f != nil {
-		err := l.f.Close()
-		l.f = nil
-		return err
+type lepStatus struct {
+	camStatus    uint32
+	commandCount uint16
+	reserved     uint16
+}
+
+func bytesToStatus(p []byte) lepStatus {
+	return lepStatus{
+		camStatus:    uint32(p[0])<<24 | uint32(p[1])<<16 | uint32(p[2])<<8 | uint32(p[3]),
+		commandCount: uint16(p[4])<<8 | uint16(p[5]),
+		reserved:     uint16(p[6])<<8 | uint16(p[7]),
 	}
-	return nil
+}
+
+func (l *Lepton) Close() error {
+	var err error
+	if l.spi != nil {
+		err = l.spi.Close()
+		l.spi = nil
+	}
+	if l.i2c != nil {
+		err = l.i2c.Close()
+		l.i2c = nil
+	}
+	return err
 }
 
 func (l *Lepton) Stats() Stats {
@@ -130,12 +144,36 @@ func (l *Lepton) Stats() Stats {
 	return l.stats
 }
 
-func (l *Lepton) ioctl(op, arg uintptr) error {
-	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, l.f.Fd(), op, arg); errno != 0 {
-		return syscall.Errno(errno)
+// ReadImg reads an image into an image. It must be 80x60.
+func (l *Lepton) ReadImg(r *LeptonBuffer) {
+	l.currentLine = -1
+	prevImg := l.currentImg
+	l.currentImg = r
+	for {
+		// TODO(maruel): Fail after N errors?
+		// TODO(maruel): Skip 2 frames since they'll be the same data so no need
+		// for the check below.
+		for l.currentLine != 59 {
+			l.readLine()
+		}
+		if prevImg == nil || !prevImg.Equal(l.currentImg) {
+			l.stats.GoodFrames++
+			l.currentImg.updateStats()
+			break
+		}
+		// It also happen if the image is 100% static without noise.
+		l.stats.DuplicateFrames++
+		l.currentLine = -1
 	}
-	return nil
 }
+
+// Private details.
+
+// Lepton commands
+const (
+	i2cAddress   = 0x2A
+	i2cSysStatus = 0x0204
+)
 
 // readLine reads one line at a time.
 //
@@ -145,7 +183,7 @@ func (l *Lepton) ioctl(op, arg uintptr) error {
 func (l *Lepton) readLine() {
 	// Operation must complete within 32ms. Frames occur every 38.4ms. With SPI,
 	// write must occur as read is being done, just sent dummy data.
-	n, err := l.f.Read(l.packet[:])
+	n, err := l.spi.Read(l.packet[:])
 	if n != len(l.packet) && err == nil {
 		err = fmt.Errorf("unexpected read %d", n)
 	}
@@ -191,28 +229,5 @@ func (l *Lepton) readLine() {
 	l.currentLine++
 	for x := 0; x < 80; x++ {
 		l.currentImg.Pix[line*80+x] = (uint16(l.packet[2*x+4])<<8 | uint16(l.packet[2*x+5]))
-	}
-}
-
-// ReadImg reads an image into an image. It must be 80x60.
-func (l *Lepton) ReadImg(r *LeptonBuffer) {
-	l.currentLine = -1
-	prevImg := l.currentImg
-	l.currentImg = r
-	for {
-		// TODO(maruel): Fail after N errors?
-		// TODO(maruel): Skip 2 frames since they'll be the same data so no need
-		// for the check below.
-		for l.currentLine != 59 {
-			l.readLine()
-		}
-		if prevImg == nil || !prevImg.Equal(l.currentImg) {
-			l.stats.GoodFrames++
-			l.currentImg.updateStats()
-			break
-		}
-		// It also happen if the image is 100% static without noise.
-		l.stats.DuplicateFrames++
-		l.currentLine = -1
 	}
 }
