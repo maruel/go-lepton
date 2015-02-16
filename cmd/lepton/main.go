@@ -74,13 +74,13 @@ func mainImpl() error {
 		fmt.Printf("Lepton serial: 0x%x\n", serial)
 	}
 	if uptime, err := l.GetUptime(); err == nil {
-		fmt.Printf("Lepton uptime: %dms\n", uptime)
+		fmt.Printf("Lepton uptime: %.2fs\n", uptime.Seconds())
 	}
 	if temp, err := l.GetTemperature(); err == nil {
-		fmt.Printf("Lepton temp: %dK\n", temp)
+		fmt.Printf("Lepton temp: %.2fK\n", float32(temp)*0.001)
 	}
 	if temp, err := l.GetTemperatureHousing(); err == nil {
-		fmt.Printf("Lepton temp: %dK (housing)\n", temp)
+		fmt.Printf("Lepton temp: %.2fK (housing)\n", float32(temp)*0.001)
 	}
 
 	c := make(chan *lepton.LeptonBuffer, 9*60)

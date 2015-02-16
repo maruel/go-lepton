@@ -107,7 +107,7 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 	if err != nil {
 		return nil, err
 	}
-	if status.camStatus != SystemReady {
+	if status.CameraStatus != SystemReady {
 		log.Printf("WARNING: camera is not ready: %s", status)
 	}
 	spi = nil
@@ -116,9 +116,9 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 }
 
 type Status struct {
-	camStatus    uint32
-	commandCount uint16
-	reserved     uint16
+	CameraStatus uint32
+	CommandCount uint16
+	Reserved     uint16
 }
 
 func (l *Lepton) GetStatus() (*Status, error) {
@@ -127,9 +127,9 @@ func (l *Lepton) GetStatus() (*Status, error) {
 		return nil, err
 	}
 	return &Status{
-		camStatus:    uint32(p[0])<<16 | uint32(p[1]),
-		commandCount: p[2],
-		reserved:     p[3],
+		CameraStatus: uint32(p[1])<<16 | uint32(p[0]),
+		CommandCount: p[2],
+		Reserved:     p[3],
 	}, nil
 }
 
@@ -139,34 +139,34 @@ func (l *Lepton) GetSerial() (uint64, error) {
 	if err := l.i2c.GetAttribute(SysSerialNumber, p); err != nil {
 		return 0, err
 	}
-	return uint64(p[0])<<48 | uint64(p[1])<<32 | uint64(p[2])<<16 | uint64(p[3]), nil
+	return uint64(p[3])<<48 | uint64(p[2])<<32 | uint64(p[1])<<16 | uint64(p[0]), nil
 }
 
-// GetUptime returns the uptime in millisecond. Rolls over after 1193 hours.
-func (l *Lepton) GetUptime() (uint32, error) {
+// GetUptime returns the uptime. Rolls over after 1193 hours.
+func (l *Lepton) GetUptime() (time.Duration, error) {
 	p := []uint16{0, 0}
 	if err := l.i2c.GetAttribute(SysUptime, p); err != nil {
 		return 0, err
 	}
-	return uint32(p[0])<<16 | uint32(p[1]), nil
+	return time.Duration(uint32(p[1])<<16|uint32(p[0])) * time.Millisecond, nil
 }
 
-// GetTemperatureHousing returns the temperature in Kelvin.
-func (l *Lepton) GetTemperatureHousing() (uint16, error) {
+// GetTemperatureHousing returns the temperature in milliKelvin.
+func (l *Lepton) GetTemperatureHousing() (int, error) {
 	p := []uint16{0}
 	if err := l.i2c.GetAttribute(SysHousingTemperature, p); err != nil {
 		return 0, err
 	}
-	return p[0], nil
+	return int(p[0]) * 10, nil
 }
 
-// GetTemperature returns the temperature in Kelvin.
-func (l *Lepton) GetTemperature() (uint16, error) {
+// GetTemperature returns the temperature in milliKelvin.
+func (l *Lepton) GetTemperature() (int, error) {
 	p := []uint16{0}
 	if err := l.i2c.GetAttribute(SysTemperature, p); err != nil {
 		return 0, err
 	}
-	return p[0], nil
+	return int(p[0]) * 10, nil
 }
 
 func (l *Lepton) Close() error {

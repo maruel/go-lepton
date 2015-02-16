@@ -7,17 +7,20 @@
 package lepton
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
 // Command to be sent over i²c.
 type Command uint16
 
+// All the available commands.
 const (
 	AGCEnable                 = Command(0x0100) // 2   GET/SET
 	AgcRoiSelect              = Command(0x0108) // 4   GET/SET
@@ -52,6 +55,44 @@ const (
 	VidFocusMetricThreshold   = Command(0x0314) // 2   GET/SET
 	VidFocusMetricGet         = Command(0x0318) // 2   GET
 	VidVideoFreezeEnable      = Command(0x0324) // 2   GET/SET
+)
+
+// RegisterAddress is a valid register that can be read or written to.
+type RegisterAddress uint16
+
+// All the available registers.
+const (
+	RegPower       = RegisterAddress(0)
+	RegStatus      = RegisterAddress(2)
+	RegCommandID   = RegisterAddress(4)
+	RegDataLength  = RegisterAddress(6)
+	RegData0       = RegisterAddress(8)
+	RegData1       = RegisterAddress(10)
+	RegData2       = RegisterAddress(12)
+	RegData3       = RegisterAddress(14)
+	RegData4       = RegisterAddress(16)
+	RegData5       = RegisterAddress(18)
+	RegData6       = RegisterAddress(20)
+	RegData7       = RegisterAddress(22)
+	RegData8       = RegisterAddress(24)
+	RegData9       = RegisterAddress(26)
+	RegData10      = RegisterAddress(28)
+	RegData11      = RegisterAddress(30)
+	RegData12      = RegisterAddress(32)
+	RegData13      = RegisterAddress(34)
+	RegData14      = RegisterAddress(36)
+	RegData15      = RegisterAddress(38)
+	RegDataCRC     = RegisterAddress(40)
+	RegDataBuffer0 = RegisterAddress(0xF800)
+	RegDataBuffer1 = RegisterAddress(0xFC00)
+)
+
+// RegStatus bitmask.
+const (
+	StatusBusyBit       = 0x1
+	StatusBootModeBit   = 0x2
+	StatusBootStatusBit = 0x4
+	StatusErrorMask     = 0xFF00
 )
 
 type SPI struct {
@@ -133,7 +174,7 @@ func MakeI2C() (*I2C, error) {
 		return nil, err
 	}
 	i := &I2C{f: f}
-	if err := i.SetAddress(i2cAddress); err != nil {
+	if err := i.setAddress(i2cAddress); err != nil {
 		f.Close()
 		return nil, err
 	}
@@ -145,7 +186,7 @@ func MakeI2C() (*I2C, error) {
 			f.Close()
 			return nil, err
 		}
-		if status == statusBootStatusBit|statusBootModeBit {
+		if status == StatusBootStatusBit|StatusBootModeBit {
 			break
 		}
 		log.Printf("i2c: lepton not yet booted: 0x%02x", status)
@@ -162,6 +203,7 @@ func (i *I2C) Close() error {
 	return err
 }
 
+// Read is the low lever function. Shouldn't be used directly.
 func (i *I2C) Read(b []byte) (int, error) {
 	if len(b)&1 != 0 {
 		panic("lepton CCI requires 16 bits aligned read")
@@ -174,6 +216,7 @@ func (i *I2C) Read(b []byte) (int, error) {
 	return n, err
 }
 
+// Write is the low lever function. Shouldn't be used directly.
 func (i *I2C) Write(b []byte) (int, error) {
 	if len(b)&1 != 0 {
 		panic("lepton CCI requires 16 bits aligned write")
@@ -186,23 +229,27 @@ func (i *I2C) Write(b []byte) (int, error) {
 // WaitIdle waits for camera to be ready.
 func (i *I2C) WaitIdle() (uint16, error) {
 	for {
-		value, err := i.readRegister(i2cRegStatus)
-		if err != nil || value&statusBusyBit == 0 {
+		value, err := i.ReadRegister(RegStatus)
+		if err != nil || value&StatusBusyBit == 0 {
 			return value, err
 		}
 		log.Printf("i2c.WaitIdle(): device busy %x", value)
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
 func (i *I2C) GetAttribute(command Command, result []uint16) error {
 	wordLength := uint16(len(result) / 2)
+	if wordLength > 1024 {
+		return errors.New("buffer too large")
+	}
 	if _, err := i.WaitIdle(); err != nil {
 		return err
 	}
-	if err := i.writeRegister(i2cRegDataLength, wordLength); err != nil {
+	if err := i.WriteRegister(RegDataLength, wordLength); err != nil {
 		return err
 	}
-	if err := i.writeRegister(i2cRegCommandID, uint16(command)); err != nil {
+	if err := i.WriteRegister(RegCommandID, uint16(command)); err != nil {
 		return err
 	}
 	status, err := i.WaitIdle()
@@ -213,17 +260,15 @@ func (i *I2C) GetAttribute(command Command, result []uint16) error {
 		return fmt.Errorf("error 0x%x", status>>8)
 	}
 	if wordLength <= 16 {
-		err = i.readData(i2cRegData0, result)
-	} else if wordLength <= 1024 {
-		err = i.readData(i2cRegDataBuffer0, result)
+		err = i.ReadData(RegData0, result)
 	} else {
-		panic("buffer too large")
+		err = i.ReadData(RegDataBuffer0, result)
 	}
 	if err != nil {
 		return err
 	}
 	/* TODO(maruel): Verify CRC:
-	crc, err = i.readRegister(i2cRegDataCRC)
+	crc, err = i.ReadRegister(RegDataCRC)
 	if err != nil {
 		return err
 	}
@@ -234,70 +279,19 @@ func (i *I2C) GetAttribute(command Command, result []uint16) error {
 	return nil
 }
 
+/*
 func (i *I2C) RunCommand(addr Command, in []byte, out []byte) error {
 	return nil
 }
+*/
 
-func (i *I2C) SetAddress(address byte) error {
-	return i.ioctl(i2cIOCSetAddress, uintptr(address))
-}
-
-func (i *I2C) ioctl(op uint, arg uintptr) error {
-	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, i.f.Fd(), uintptr(op), arg); errno != 0 {
-		return fmt.Errorf("i2c ioctl: %s", syscall.Errno(errno))
-	}
-	return nil
-}
-
-// Private details.
-
-type registerAddress uint16
-
-// Drivers IOCTL control codes.
-const (
-	spiIOCMode        = 0x16B01
-	spiIOCBitsPerWord = 0x16B03
-	spiIOCMaxSpeedHz  = 0x46B04
-
-	i2cAddress       = 0x2A
-	i2cIOCSetAddress = 0x0703 // I2C_SLAVE
-
-	i2cRegPower       = registerAddress(0)
-	i2cRegStatus      = registerAddress(2)
-	i2cRegCommandID   = registerAddress(4)
-	i2cRegDataLength  = registerAddress(6)
-	i2cRegData0       = registerAddress(8)
-	i2cRegData1       = registerAddress(10)
-	i2cRegData2       = registerAddress(12)
-	i2cRegData3       = registerAddress(14)
-	i2cRegData4       = registerAddress(16)
-	i2cRegData5       = registerAddress(18)
-	i2cRegData6       = registerAddress(20)
-	i2cRegData7       = registerAddress(22)
-	i2cRegData8       = registerAddress(24)
-	i2cRegData9       = registerAddress(26)
-	i2cRegData10      = registerAddress(28)
-	i2cRegData11      = registerAddress(30)
-	i2cRegData12      = registerAddress(32)
-	i2cRegData13      = registerAddress(34)
-	i2cRegData14      = registerAddress(36)
-	i2cRegData15      = registerAddress(38)
-	i2cRegDataCRC     = registerAddress(40)
-	i2cRegDataBuffer0 = registerAddress(0xF800)
-	i2cRegDataBuffer1 = registerAddress(0xFC00)
-
-	statusBusyBit       = 0x1
-	statusBootModeBit   = 0x2
-	statusBootStatusBit = 0x4
-)
-
-func (i *I2C) readRegister(addr registerAddress) (uint16, error) {
+func (i *I2C) ReadRegister(addr RegisterAddress) (uint16, error) {
 	data := []uint16{0}
-	err := i.readData(addr, data)
+	err := i.ReadData(addr, data)
 	return data[0], err
 }
 
-func (i *I2C) readData(addr registerAddress, data []uint16) error {
+func (i *I2C) ReadData(addr RegisterAddress, data []uint16) error {
 	if _, err := i.Write([]byte{byte(addr >> 8), byte(addr & 0xff)}); err != nil {
 		return err
 	}
@@ -312,11 +306,11 @@ func (i *I2C) readData(addr registerAddress, data []uint16) error {
 	return nil
 }
 
-func (i *I2C) writeRegister(addr registerAddress, data uint16) error {
-	return i.writeData(addr, []uint16{data})
+func (i *I2C) WriteRegister(addr RegisterAddress, data uint16) error {
+	return i.WriteData(addr, []uint16{data})
 }
 
-func (i *I2C) writeData(addr registerAddress, data []uint16) error {
+func (i *I2C) WriteData(addr RegisterAddress, data []uint16) error {
 	tmp := make([]byte, len(data)*2+2)
 	tmp[0] = byte(addr >> 8)
 	tmp[1] = byte(addr & 0xff)
@@ -327,4 +321,27 @@ func (i *I2C) writeData(addr registerAddress, data []uint16) error {
 	//log.Printf("i2c.writedata(0x%02X, %v)", addr, data)
 	_, err := i.Write(tmp)
 	return err
+}
+
+func (i *I2C) setAddress(address byte) error {
+	return i.ioctl(i2cIOCSetAddress, uintptr(address))
+}
+
+// Private details.
+
+// Drivers IOCTL control codes.
+const (
+	spiIOCMode        = 0x16B01
+	spiIOCBitsPerWord = 0x16B03
+	spiIOCMaxSpeedHz  = 0x46B04
+
+	i2cAddress       = 0x2A
+	i2cIOCSetAddress = 0x0703 // I2C_SLAVE
+)
+
+func (i *I2C) ioctl(op uint, arg uintptr) error {
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, i.f.Fd(), uintptr(op), arg); errno != 0 {
+		return fmt.Errorf("i2c ioctl: %s", syscall.Errno(errno))
+	}
+	return nil
 }
