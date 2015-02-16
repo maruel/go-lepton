@@ -72,7 +72,7 @@ func (s *SPI) Read(b []byte) (int, error) {
 
 func (s *SPI) ioctl(op uint, arg unsafe.Pointer) error {
 	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, s.f.Fd(), uintptr(op), uintptr(arg)); errno != 0 {
-		return syscall.Errno(errno)
+		return fmt.Errorf("spi ioctl: %s", syscall.Errno(errno))
 	}
 	return nil
 }
@@ -115,7 +115,7 @@ func (i *I2C) Cmd(cmdID int, data []byte, result []byte) error {
 	cmdWord[1] = byte(cmdID & 0xff)
 	cmdWord = append(cmdWord, data...)
 	if _, err := i.Write(cmdWord); err != nil {
-		return err
+		return fmt.Errorf("i2c write fail: %s", err)
 	}
 	if len(result) != 0 {
 		n, err := i.Read(result)
@@ -123,7 +123,7 @@ func (i *I2C) Cmd(cmdID int, data []byte, result []byte) error {
 			return io.ErrShortBuffer
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("i2c read fail: %s", err)
 		}
 	}
 	return nil
@@ -135,7 +135,7 @@ func (i *I2C) SetAddress(address byte) error {
 
 func (i *I2C) ioctl(op uint, arg unsafe.Pointer) error {
 	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, i.f.Fd(), uintptr(op), uintptr(arg)); errno != 0 {
-		return syscall.Errno(errno)
+		return fmt.Errorf("i2c ioctl: %s", syscall.Errno(errno))
 	}
 	return nil
 }
