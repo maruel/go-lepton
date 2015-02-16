@@ -49,7 +49,7 @@ func (s *SPI) Close() error {
 }
 
 func (s *SPI) GetFlag(op uint, arg *uint64) error {
-	return s.ioctl(op|0x80000000, unsafe.Pointer(&arg))
+	return s.ioctl(op|0x80000000, unsafe.Pointer(arg))
 }
 
 func (s *SPI) SetFlag(op uint, arg uint64) error {
@@ -61,7 +61,7 @@ func (s *SPI) SetFlag(op uint, arg uint64) error {
 		return err
 	}
 	if actual != arg {
-		return fmt.Errorf("op 0x%x: set 0x%x, read 0x%x", op, arg, actual)
+		return fmt.Errorf("spi op 0x%x: set 0x%x, read 0x%x", op, arg, actual)
 	}
 	return nil
 }
