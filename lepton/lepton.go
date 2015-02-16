@@ -15,7 +15,7 @@
 // FLIR LEPTON® Long Wave Infrared (LWIR) Datasheet
 //   https://drive.google.com/file/d/0B3wmCw6bdPqFblZsZ3l4SXM4R28/view
 //   p. 7 Sensitivity is below 0.05°C
-//   p. 19-21 Telemetry mode; TODO(maruel): Enable.
+//   p. 19-21 Telemetry mode
 //   p. 22-24 Radiometry mode; TODO(maruel): Enable.
 //   p. 28-35 SPI protocol explanation.
 //
@@ -25,7 +25,7 @@
 // Connecting to a Raspberry Pi:
 //   https://github.com/PureEngineering/LeptonModule/wiki
 //
-// Lepton™ Software Interface Description Document (IDD):
+// Lepton™ Software Interface Description Document (IDD) for i²c protocol:
 //   (Application level and SDK doc)
 //   https://drive.google.com/file/d/0B3wmCw6bdPqFOHlQbExFbWlXS0k/view
 //   p. 24    i²c command format.
@@ -122,8 +122,13 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 	if status.CameraStatus != SystemReady {
 		log.Printf("WARNING: camera is not ready: %s", status)
 	}
+	// Warning: Assumes AGC is disabled. There's no code here to enable it anyway.
+	if err := i2c.SetAttribute(SysTelemetryEnable, []uint16{0, 1}); err != nil {
+		return nil, err
+	}
 	spi = nil
 	i2c = nil
+
 	return out, nil
 }
 
@@ -168,24 +173,24 @@ func (l *Lepton) GetUptime() (time.Duration, error) {
 	return time.Duration(uint32(p[1])<<16|uint32(p[0])) * time.Millisecond, nil
 }
 
-// GetTemperatureHousing returns the temperature in milliKelvin.
-func (l *Lepton) GetTemperatureHousing() (int, error) {
+// GetTemperatureHousing returns the temperature in centi-Kelvin.
+func (l *Lepton) GetTemperatureHousing() (CentiK, error) {
 	p := []uint16{0}
 	if err := l.i2c.GetAttribute(SysHousingTemperature, p); err != nil {
 		return 0, err
 	}
 	log.Printf("temp: 0x%04x", p[0])
-	return int(p[0]) * 10, nil
+	return CentiK(p[0]), nil
 }
 
-// GetTemperature returns the temperature in milliKelvin.
-func (l *Lepton) GetTemperature() (int, error) {
+// GetTemperature returns the temperature in centi-Kelvin.
+func (l *Lepton) GetTemperature() (CentiK, error) {
 	p := []uint16{0}
 	if err := l.i2c.GetAttribute(SysTemperature, p); err != nil {
 		return 0, err
 	}
 	log.Printf("temp: 0x%04x", p[0])
-	return int(p[0]) * 10, nil
+	return CentiK(p[0]), nil
 }
 
 func (l *Lepton) Close() error {
@@ -268,7 +273,7 @@ func (l *Lepton) readLine() {
 
 	// TODO(maruel): Verify CRC (bytes 2-3) ?
 	line := int(l.packet[1])
-	if line > 60 {
+	if line > 63 {
 		time.Sleep(200 * time.Millisecond)
 		l.stats.BrokenPackets++
 		l.currentLine = -1
@@ -283,7 +288,69 @@ func (l *Lepton) readLine() {
 
 	// Convert the line from byte to uint16. 14 bits significant.
 	l.currentLine++
-	for x := 0; x < 80; x++ {
-		l.currentImg.Pix[line*80+x] = (uint16(l.packet[2*x+4])<<8 | uint16(l.packet[2*x+5]))
+	if line < 3 {
+		// Telemetry lines.
+		if line == 0 {
+			// Everything is as uint16.
+			offset := func(x int) uint16 {
+				return uint16(l.packet[2*x+4])<<8 | uint16(l.packet[2*x+5])
+			}
+			revision := offset(0)
+			// Ensures the revision is known, remove once it's known to work.
+			if revision != 8 && revision != 9 {
+				panic(fmt.Errorf("Unexpected revision 0x%X", revision))
+			}
+			l.currentImg.SinceStartup = time.Duration(uint32(offset(1))<<16|uint32(offset(2))) * time.Millisecond
+
+			status := uint32(offset(3))<<16 | uint32(offset(4))
+			// Ensures all reserved bits are 0, just to confirm we didn't mess up. Remove this code once it's proved to be working.
+			if status&0xffefefc7 != 0 {
+				panic(fmt.Errorf("Unexpected status 0x%X", status))
+			}
+			l.currentImg.FCCDesired = status&(1<<3) != 0
+			fccstate := (status & (1<<5 + 1<<4)) >> 4
+			if revision <= 8 {
+				switch fccstate {
+				case 0:
+					l.currentImg.FCCState = FCCNever
+				case 1:
+					l.currentImg.FCCState = FCCInProgress
+				case 2:
+					l.currentImg.FCCState = FCCComplete
+				default:
+					panic(fmt.Errorf("unexpected fccstate %d", fccstate))
+				}
+			} else {
+				switch fccstate {
+				case 0:
+					l.currentImg.FCCState = FCCNever
+				case 2:
+					l.currentImg.FCCState = FCCInProgress
+				case 3:
+					l.currentImg.FCCState = FCCComplete
+				default:
+					panic(fmt.Errorf("unexpected fccstate %d", fccstate))
+				}
+			}
+			// Should never be enabled.
+			l.currentImg.AGCEnabled = status&(1<<12) != 0
+			l.currentImg.Overtemp = status&(1<<20) != 0
+
+			l.currentImg.FrameCount = uint32(offset(20))<<16 | uint32(offset(21))
+			l.currentImg.Mean = offset(22)
+			l.currentImg.RawTemperature = offset(23)
+			l.currentImg.Temperature = CentiK(offset(24))
+			l.currentImg.RawTemperatureHousing = offset(25)
+			l.currentImg.TemperatureHousing = CentiK(offset(26))
+			l.currentImg.FCCTemperature = CentiK(offset(29))
+			l.currentImg.FCCSince = time.Duration(uint32(offset(30))<<16|uint32(offset(31))) * time.Millisecond
+			l.currentImg.FCCTemperatureHousing = CentiK(offset(32))
+			l.currentImg.FCCLog2 = offset(74)
+		}
+	} else {
+		line -= 3
+		for x := 0; x < 80; x++ {
+			l.currentImg.Pix[line*80+x] = (uint16(l.packet[2*x+4])<<8 | uint16(l.packet[2*x+5]))
+		}
 	}
 }

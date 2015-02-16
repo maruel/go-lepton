@@ -7,14 +7,41 @@ package lepton
 import (
 	"image"
 	"image/color"
+	"time"
+)
+
+// CentiK is temperature in 0.01K
+type CentiK uint16
+
+type FCCState uint8
+
+const (
+	FCCNever      = FCCState(0)
+	FCCInProgress = FCCState(1)
+	FCCComplete   = FCCState(2)
 )
 
 // Image implements image.Image. It is essentially a Gray16 but faster
 // since the Raspberry Pi is CPU constrained.
 type LeptonBuffer struct {
-	Pix [80 * 60]uint16 // 9600 bytes.
-	Min uint16
-	Max uint16
+	Pix                   [80 * 60]uint16 // 9600 bytes.
+	SinceStartup          time.Duration   // The following is retrieved via the telemetry header.
+	FCCDesired            bool
+	FCCState              FCCState
+	AGCEnabled            bool // true if enabled.
+	Overtemp              bool // true 10s before self-shutdown.
+	FrameCount            uint32
+	Mean                  uint16
+	RawTemperature        uint16
+	Temperature           CentiK
+	RawTemperatureHousing uint16
+	TemperatureHousing    CentiK
+	FCCTemperature        CentiK
+	FCCSince              time.Duration // Time since last FCC.
+	FCCTemperatureHousing CentiK
+	FCCLog2               uint16
+	Min                   uint16
+	Max                   uint16
 }
 
 func (l *LeptonBuffer) ColorModel() color.Model {
@@ -72,32 +99,3 @@ func (l *LeptonBuffer) Equal(r *LeptonBuffer) bool {
 	}
 	return true
 }
-
-// TODO(maruel): Create a .Tag() then .Release() on each buffer.
-/*
-type imageRing struct {
-	c chan *lepton.LeptonBuffer
-}
-
-func makeImageRing() *imageRing {
-	return &imageRing{c: make(chan *lepton.LeptonBuffer, 16)}
-}
-
-func (i *imageRing) get() *lepton.LeptonBuffer {
-	select {
-	case b := <-i.c:
-		return b
-	default:
-		return &lepton.LeptonBuffer{}
-	}
-}
-
-func (i *imageRing) done(b *lepton.LeptonBuffer) {
-	if len(i.c) < 8 {
-		i.c <- b
-	}
-}
-
-	c := make(chan *lepton.LeptonBuffer, 9*60)
-	ring := makeImageRing()
-*/

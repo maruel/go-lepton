@@ -237,14 +237,13 @@ func (i *I2C) WaitIdle() (uint16, error) {
 }
 
 func (i *I2C) GetAttribute(command Command, result []uint16) error {
-	wordLength := uint16(len(result) / 2)
-	if wordLength > 1024 {
+	if len(result) > 1024 {
 		return errors.New("buffer too large")
 	}
 	if _, err := i.WaitIdle(); err != nil {
 		return err
 	}
-	if err := i.WriteRegister(RegDataLength, wordLength); err != nil {
+	if err := i.WriteRegister(RegDataLength, uint16(len(result))); err != nil {
 		return err
 	}
 	if err := i.WriteRegister(RegCommandID, uint16(command)); err != nil {
@@ -257,7 +256,7 @@ func (i *I2C) GetAttribute(command Command, result []uint16) error {
 	if status&0xff00 != 0 {
 		return fmt.Errorf("error 0x%x", status>>8)
 	}
-	if wordLength <= 16 {
+	if len(result) <= 16 {
 		err = i.ReadData(RegData0, result)
 	} else {
 		err = i.ReadData(RegDataBuffer0, result)
@@ -277,11 +276,57 @@ func (i *I2C) GetAttribute(command Command, result []uint16) error {
 	return nil
 }
 
-/* TODO(maruel): Add.
-func (i *I2C) RunCommand(addr Command, in []byte, out []byte) error {
+func (i *I2C) SetAttribute(command Command, value []uint16) error {
+	if len(value) > 1024 {
+		return errors.New("buffer too large")
+	}
+	if _, err := i.WaitIdle(); err != nil {
+		return err
+	}
+	var err error
+	if len(value) <= 16 {
+		err = i.WriteData(RegData0, value)
+	} else {
+		err = i.WriteData(RegDataBuffer0, value)
+	}
+	if err != nil {
+		return err
+	}
+	if err := i.WriteRegister(RegDataLength, uint16(len(value))); err != nil {
+		return err
+	}
+	if err := i.WriteRegister(RegCommandID, uint16(command)|1); err != nil {
+		return err
+	}
+	status, err := i.WaitIdle()
+	if err != nil {
+		return err
+	}
+	if status&0xff00 != 0 {
+		return fmt.Errorf("error 0x%x", status>>8)
+	}
 	return nil
 }
-*/
+
+func (i *I2C) RunCommand(command Command) error {
+	if _, err := i.WaitIdle(); err != nil {
+		return err
+	}
+	if err := i.WriteRegister(RegDataLength, 0); err != nil {
+		return err
+	}
+	if err := i.WriteRegister(RegCommandID, uint16(command)|2); err != nil {
+		return err
+	}
+	status, err := i.WaitIdle()
+	if err != nil {
+		return err
+	}
+	if status&0xff00 != 0 {
+		return fmt.Errorf("error 0x%x", status>>8)
+	}
+	return nil
+}
 
 func (i *I2C) ReadRegister(addr RegisterAddress) (uint16, error) {
 	data := []uint16{0}

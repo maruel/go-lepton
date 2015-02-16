@@ -80,10 +80,10 @@ func mainImpl() error {
 		fmt.Printf("Lepton uptime: %.2fs\n", uptime.Seconds())
 	}
 	if temp, err := l.GetTemperature(); err == nil {
-		fmt.Printf("Lepton temp: %.2fK\n", float32(temp)*0.001)
+		fmt.Printf("Lepton temp: %.2fK\n", float32(temp)*0.01)
 	}
 	if temp, err := l.GetTemperatureHousing(); err == nil {
-		fmt.Printf("Lepton temp: %.2fK (housing)\n", float32(temp)*0.001)
+		fmt.Printf("Lepton temp: %.2fK (housing)\n", float32(temp)*0.01)
 	}
 	if *query {
 		return nil
