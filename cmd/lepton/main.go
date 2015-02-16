@@ -19,7 +19,10 @@ func printStats(l *lepton.Lepton, s *Seeder) {
 	started := time.Now()
 	for !interrupt.IsSet() {
 		leptonStats := l.Stats()
-		seederStats := s.Stats()
+		var seederStats SeederStats
+		if s != nil {
+			seederStats = s.Stats()
+		}
 		duration := time.Now().Sub(started)
 		fmt.Printf(
 			"\r%d frames %d duped %d dummy %d badsync %d broken %d fail %d HTTP %d Imgs %.1fs",
@@ -54,7 +57,10 @@ func mainImpl() error {
 
 	interrupt.HandleCtrlC()
 
-	s := LoadSeeder()
+	var s *Seeder
+	if !*noPush {
+		s = LoadSeeder()
+	}
 
 	l, err := lepton.MakeLepton("", 0)
 	if l != nil {
@@ -65,9 +71,9 @@ func mainImpl() error {
 	}
 
 	c := make(chan *lepton.LeptonBuffer, 9*60)
-	d := make(chan *lepton.LeptonBuffer, 9*60)
-	if s == nil || *noPush {
-		d = nil
+	var d chan *lepton.LeptonBuffer
+	if s != nil {
+		d = make(chan *lepton.LeptonBuffer, 9*60)
 	}
 
 	// Lepton reader loop.
