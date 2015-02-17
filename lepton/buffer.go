@@ -21,15 +21,11 @@ const (
 	FCCComplete   = FCCState(2)
 )
 
-// Image implements image.Image. It is essentially a Gray16 but faster
-// since the Raspberry Pi is CPU constrained.
-type LeptonBuffer struct {
-	Pix                   [80 * 60]uint16 // 9600 bytes.
-	SinceStartup          time.Duration   // The following is retrieved via the telemetry header.
-	FCCDesired            bool
-	FCCState              FCCState
-	AGCEnabled            bool // true if enabled.
-	Overtemp              bool // true 10s before self-shutdown.
+type Metadata struct {
+	DeviceSerial          [16]uint8
+	DeviceVersion         uint64
+	SinceStartup          time.Duration
+	FCCSince              time.Duration // Time since last FCC.
 	FrameCount            uint32
 	Mean                  uint16
 	RawTemperature        uint16
@@ -37,11 +33,21 @@ type LeptonBuffer struct {
 	RawTemperatureHousing uint16
 	TemperatureHousing    CentiK
 	FCCTemperature        CentiK
-	FCCSince              time.Duration // Time since last FCC.
 	FCCTemperatureHousing CentiK
 	FCCLog2               uint16
-	Min                   uint16
+	FCCState              FCCState
+	FCCDesired            bool
+	AGCEnabled            bool   // true if enabled.
+	Overtemp              bool   // true 10s before self-shutdown.
+	Min                   uint16 // Manually calculated.
 	Max                   uint16
+}
+
+// Image implements image.Image. It is essentially a Gray16 but faster
+// since the Raspberry Pi is CPU constrained.
+type LeptonBuffer struct {
+	Pix [80 * 60]uint16 // 9600 bytes.
+	Metadata
 }
 
 func (l *LeptonBuffer) ColorModel() color.Model {

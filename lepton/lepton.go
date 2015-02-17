@@ -77,7 +77,7 @@ type Lepton struct {
 }
 
 func MakeLepton(path string, speed int) (*Lepton, error) {
-	// Max rate supported by FLIR Lepton is 20Mhz. Minimum usable rate is ~4Mhz
+	// Max rate supported by FLIR Lepton is 25Mhz. Minimum usable rate is ~4Mhz
 	// to sustain framerate. Sadly the Lepton will inconditionally send 27fps,
 	// even if the effective rate is 9fps. Lower rate is less likely to get
 	// electromagnetic interference and reduces unnecessary CPU consumption by
@@ -103,6 +103,7 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 		return nil, err
 	}
 
+	// Rated speed is 1Mhz.
 	i2c, err := MakeI2C()
 	defer func() {
 		if i2c != nil {
@@ -220,7 +221,8 @@ func (l *Lepton) ReadImg(r *LeptonBuffer) {
 		// TODO(maruel): Fail after N errors?
 		// TODO(maruel): Skip 2 frames since they'll be the same data so no need
 		// for the check below.
-		for l.currentLine != 59 {
+		// Do not forget the 3 telemetry lines.
+		for l.currentLine != 62 {
 			l.readLine()
 		}
 		if prevImg == nil || !prevImg.Equal(l.currentImg) {
@@ -273,7 +275,7 @@ func (l *Lepton) readLine() {
 
 	// TODO(maruel): Verify CRC (bytes 2-3) ?
 	line := int(l.packet[1])
-	if line > 63 {
+	if line >= 63 {
 		time.Sleep(200 * time.Millisecond)
 		l.stats.BrokenPackets++
 		l.currentLine = -1
@@ -288,69 +290,68 @@ func (l *Lepton) readLine() {
 
 	// Convert the line from byte to uint16. 14 bits significant.
 	l.currentLine++
-	if line < 3 {
-		// Telemetry lines.
-		if line == 0 {
-			// Everything is as uint16.
-			offset := func(x int) uint16 {
-				return uint16(l.packet[2*x+4])<<8 | uint16(l.packet[2*x+5])
-			}
-			revision := offset(0)
-			// Ensures the revision is known, remove once it's known to work.
-			if revision != 8 && revision != 9 {
-				panic(fmt.Errorf("Unexpected revision 0x%X", revision))
-			}
-			l.currentImg.SinceStartup = time.Duration(uint32(offset(1))<<16|uint32(offset(2))) * time.Millisecond
-
-			status := uint32(offset(3))<<16 | uint32(offset(4))
-			// Ensures all reserved bits are 0, just to confirm we didn't mess up. Remove this code once it's proved to be working.
-			if status&0xffefefc7 != 0 {
-				panic(fmt.Errorf("Unexpected status 0x%X", status))
-			}
-			l.currentImg.FCCDesired = status&(1<<3) != 0
-			fccstate := (status & (1<<5 + 1<<4)) >> 4
-			if revision <= 8 {
-				switch fccstate {
-				case 0:
-					l.currentImg.FCCState = FCCNever
-				case 1:
-					l.currentImg.FCCState = FCCInProgress
-				case 2:
-					l.currentImg.FCCState = FCCComplete
-				default:
-					panic(fmt.Errorf("unexpected fccstate %d", fccstate))
-				}
-			} else {
-				switch fccstate {
-				case 0:
-					l.currentImg.FCCState = FCCNever
-				case 2:
-					l.currentImg.FCCState = FCCInProgress
-				case 3:
-					l.currentImg.FCCState = FCCComplete
-				default:
-					panic(fmt.Errorf("unexpected fccstate %d", fccstate))
-				}
-			}
-			// Should never be enabled.
-			l.currentImg.AGCEnabled = status&(1<<12) != 0
-			l.currentImg.Overtemp = status&(1<<20) != 0
-
-			l.currentImg.FrameCount = uint32(offset(20))<<16 | uint32(offset(21))
-			l.currentImg.Mean = offset(22)
-			l.currentImg.RawTemperature = offset(23)
-			l.currentImg.Temperature = CentiK(offset(24))
-			l.currentImg.RawTemperatureHousing = offset(25)
-			l.currentImg.TemperatureHousing = CentiK(offset(26))
-			l.currentImg.FCCTemperature = CentiK(offset(29))
-			l.currentImg.FCCSince = time.Duration(uint32(offset(30))<<16|uint32(offset(31))) * time.Millisecond
-			l.currentImg.FCCTemperatureHousing = CentiK(offset(32))
-			l.currentImg.FCCLog2 = offset(74)
-		}
-	} else {
-		line -= 3
+	if line < 60 {
 		for x := 0; x < 80; x++ {
 			l.currentImg.Pix[line*80+x] = (uint16(l.packet[2*x+4])<<8 | uint16(l.packet[2*x+5]))
 		}
+	} else if line == 60 {
+		// Telemetry line.
+		// Everything is in big endian uint16.
+		offset := func(x int) uint16 {
+			return uint16(l.packet[2*x+4])<<8 | uint16(l.packet[2*x+5])
+		}
+		revision := offset(0)
+		// Ensures the revision is known, remove once it's known to work.
+		if revision != 8 && revision != 9 {
+			panic(fmt.Errorf("Unexpected revision 0x%X", revision))
+		}
+		l.currentImg.SinceStartup = time.Duration(uint32(offset(1))<<16|uint32(offset(2))) * time.Millisecond
+
+		status := uint32(offset(3))<<16 | uint32(offset(4))
+		// Ensures all reserved bits are 0, just to confirm we didn't mess up. Remove this code once it's proved to be working.
+		if status&0xffefefc7 != 0 {
+			panic(fmt.Errorf("Unexpected status 0x%X", status))
+		}
+		l.currentImg.FCCDesired = status&(1<<3) != 0
+		fccstate := (status & (1<<5 + 1<<4)) >> 4
+		if revision <= 8 {
+			switch fccstate {
+			case 0:
+				l.currentImg.FCCState = FCCNever
+			case 1:
+				l.currentImg.FCCState = FCCInProgress
+			case 2:
+				l.currentImg.FCCState = FCCComplete
+			default:
+				panic(fmt.Errorf("unexpected fccstate %d", fccstate))
+			}
+		} else {
+			switch fccstate {
+			case 0:
+				l.currentImg.FCCState = FCCNever
+			case 2:
+				l.currentImg.FCCState = FCCInProgress
+			case 3:
+				l.currentImg.FCCState = FCCComplete
+			default:
+				panic(fmt.Errorf("unexpected fccstate %d", fccstate))
+			}
+		}
+		// Should never be enabled.
+		l.currentImg.AGCEnabled = status&(1<<12) != 0
+		l.currentImg.Overtemp = status&(1<<20) != 0
+
+		copy(l.currentImg.DeviceSerial[:], l.packet[5:8])
+		l.currentImg.DeviceVersion = uint64(offset(13))<<48 | uint64(offset(14))<<32 | uint64(offset(15))<<16 | uint64(offset(16))
+		l.currentImg.FrameCount = uint32(offset(20))<<16 | uint32(offset(21))
+		l.currentImg.Mean = offset(22)
+		l.currentImg.RawTemperature = offset(23)
+		l.currentImg.Temperature = CentiK(offset(24))
+		l.currentImg.RawTemperatureHousing = offset(25)
+		l.currentImg.TemperatureHousing = CentiK(offset(26))
+		l.currentImg.FCCTemperature = CentiK(offset(29))
+		l.currentImg.FCCSince = time.Duration(uint32(offset(30))<<16|uint32(offset(31))) * time.Millisecond
+		l.currentImg.FCCTemperatureHousing = CentiK(offset(32))
+		l.currentImg.FCCLog2 = offset(74)
 	}
 }
