@@ -5,13 +5,17 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"image"
 	"image/png"
+	"log"
 	"net/http"
+	"strconv"
 	"sync"
 
+	"github.com/gorilla/mux"
 	"github.com/maruel/go-lepton/lepton"
 )
 
@@ -30,6 +34,22 @@ var rootTmpl = template.Must(template.New("name").Parse(`
 				var still = document.getElementById("still");
 				still.src = "/still.png#" + new Date().getTime();
 			}
+
+			function loadStats() {
+				// Do AJAX stuff.
+				Uint16Array();
+			}
+
+			function tmp() {
+				var can = document.getElementById('canvas1');
+				var context = can.getContext('2d');
+				context.clearRect(0, 0, image.width, image.height);
+				var drawing = new Image();
+				drawing.onload = function() {
+					context.drawImage(drawing, 0, 0);
+				};
+				drawing.src = "/still.png";
+			}
 		</script>
 	</head>
 	<body>
@@ -39,19 +59,36 @@ var rootTmpl = template.Must(template.New("name").Parse(`
 		{{.Stats}}
 		<br>
 		{{.Img.Min}} - {{.Img.Max}}
+		<canvas id="canvas1" width="500" height="500"></canvas>
 	</body>
 	</html>`))
 
 type WebServer struct {
-	lock    sync.Mutex
-	state   string
-	lastImg *lepton.LeptonBuffer
+	lock      sync.Mutex
+	state     string
+	images    [9 * 10]*lepton.LeptonBuffer // 10 seconds worth of images. Each image is ~10kb.
+	lastIndex int                          // Index of the most recent image.
 }
 
-func (s *WebServer) SetImg(img *lepton.LeptonBuffer) {
+func (s *WebServer) AddImg(img *lepton.LeptonBuffer) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	s.lastImg = img
+	s.lastIndex = (s.lastIndex + 1) % len(s.images)
+	s.images[s.lastIndex] = img
+}
+
+func StartWebServer(port int) *WebServer {
+	w := &WebServer{lastIndex: -1}
+	mux := mux.NewRouter()
+	mux.HandleFunc("/", w.root)
+	mux.HandleFunc("/favicon.ico", w.stillLatestPNG)
+	mux.HandleFunc("/still/{id:[0-9]+}.png", w.stillPNG)
+	mux.HandleFunc("/still/latest.png", w.stillLatestPNG)
+	mux.HandleFunc("/still/{id:[0-9]+}.JSON", w.stillJSON)
+	mux.HandleFunc("/still/latest.JSON", w.stillLatestJSON)
+	fmt.Printf("Listening on %d\n", port)
+	go http.ListenAndServe(fmt.Sprintf(":%d", port), loggingHandler{mux})
+	return w
 }
 
 func (s *WebServer) root(w http.ResponseWriter, r *http.Request) {
@@ -63,35 +100,95 @@ func (s *WebServer) root(w http.ResponseWriter, r *http.Request) {
 	s.lock.Unlock()
 }
 
-func (s *WebServer) still(w http.ResponseWriter, r *http.Request) {
+func (s *WebServer) stillPNG(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+	id, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil {
+		panic("internal error")
+	}
 	img := image.NewGray(image.Rect(0, 0, 80, 60))
-	s.lock.Lock()
-	s.lastImg.AGC(img)
-	s.lock.Unlock()
+	s.getImage(id).AGC(img)
 	if err := png.Encode(w, img); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
-func (s *WebServer) still16(w http.ResponseWriter, r *http.Request) {
+func (s *WebServer) stillLatestPNG(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	if err := png.Encode(w, s.lastImg); err != nil {
+	img := image.NewGray(image.Rect(0, 0, 80, 60))
+	s.getLatestImage().AGC(img)
+	if err := png.Encode(w, img); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
-func StartWebServer(port int) *WebServer {
-	w := &WebServer{}
-	http.HandleFunc("/", w.root)
-	http.HandleFunc("/favicon.ico", w.still)
-	http.HandleFunc("/still.png", w.still)
-	http.HandleFunc("/still16.png", w.still16)
-	fmt.Printf("Listening on %d\n", port)
-	go http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
-	return w
+func (s *WebServer) stillJSON(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	id, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil {
+		panic("internal error")
+	}
+	if err := json.NewEncoder(w).Encode(s.getImage(id)); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *WebServer) stillLatestJSON(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+	if err := json.NewEncoder(w).Encode(s.getLatestImage()); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// Private details.
+
+func (s *WebServer) getLatestImage() *lepton.LeptonBuffer {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	if s.lastIndex == -1 {
+		return &lepton.LeptonBuffer{}
+	}
+	return s.images[s.lastIndex]
+}
+
+func (s *WebServer) getImage(id int) *lepton.LeptonBuffer {
+	id32 := uint32(id)
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	for _, img := range s.images {
+		if img.FrameCount == id32 {
+			return img
+		}
+	}
+	return &lepton.LeptonBuffer{}
+}
+
+type loggingHandler struct {
+	handler http.Handler
+}
+
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	length int
+	status int
+}
+
+func (l *loggingResponseWriter) Write(data []byte) (size int, err error) {
+	size, err = l.ResponseWriter.Write(data)
+	l.length += size
+	return
+}
+
+func (l *loggingResponseWriter) WriteHeader(status int) {
+	l.ResponseWriter.WriteHeader(status)
+	l.status = status
+}
+
+// Logs each HTTP request if -verbose is passed.
+func (l loggingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	lrw := &loggingResponseWriter{ResponseWriter: w}
+	l.handler.ServeHTTP(lrw, r)
+	log.Printf("%s - %3d %6db %4s %s\n", r.RemoteAddr, lrw.status, lrw.length, r.Method, r.RequestURI)
 }

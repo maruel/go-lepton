@@ -117,7 +117,7 @@ func mainImpl() error {
 	w := StartWebServer(*port)
 	go func() {
 		for {
-			w.SetImg(<-c)
+			w.AddImg(<-c)
 		}
 	}()
 
