@@ -107,8 +107,7 @@ func (l *LeptonBuffer) AGCGrayLinear(dst *image.Gray) {
 	delta := int(l.Max - floor)
 	for y := 0; y < 60; y++ {
 		for x := 0; x < 80; x++ {
-			v := (int(l.Gray16At(x, y)-floor) + delta - 1) * 255 / delta
-			dst.Pix[y*80+x] = uint8(v)
+			dst.Pix[y*80+x] = uint8(int(l.Gray16At(x, y)-floor) * 255 / delta)
 		}
 	}
 }
@@ -124,7 +123,7 @@ func (l *LeptonBuffer) AGCRGBLinear(dst *image.NRGBA) {
 	for y := 0; y < 60; y++ {
 		for x := 0; x < 80; x++ {
 			i := 4 * (y*80 + x)
-			j := 3 * ((int(l.Gray16At(x, y)-floor) + delta - 1) * 255 / delta)
+			j := 3 * (int(l.Gray16At(x, y)-floor) * 255 / delta)
 			dst.Pix[i] = palette[j]
 			dst.Pix[i+1] = palette[j+1]
 			dst.Pix[i+2] = palette[j+2]
@@ -256,4 +255,10 @@ var palette = []uint8{
 	233, 81, 255, 234, 95, 255, 236, 109, 255, 238, 123, 255, 240, 137, 255, 242,
 	151, 255, 244, 165, 255, 246, 179, 255, 248, 193, 255, 249, 207, 255, 251,
 	221, 255, 253, 235, 255, 255, 24,
+}
+
+func init() {
+	if len(palette) != 3*256 {
+		panic(fmt.Sprintf("expected %d, got %d", 3*256, len(palette)))
+	}
 }

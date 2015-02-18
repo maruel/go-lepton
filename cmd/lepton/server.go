@@ -56,9 +56,6 @@ var rootTmpl = template.Must(template.New("name").Parse(`
 		Still:<br>
 		<a href="/still/rgb/latest.png"><img class="large" id="still" src="/still/rgb/latest.png" onload="reload()"></img></a>
 		<br>
-		{{.Stats}}
-		<br>
-		{{.Img.Min}} - {{.Img.Max}}
 		<canvas id="canvas1" width="500" height="500"></canvas>
 	</body>
 	</html>`))
