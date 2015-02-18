@@ -15,10 +15,29 @@ import (
 
 	"github.com/maruel/go-lepton/lepton"
 	"github.com/maruel/interrupt"
+	//"github.com/maruel/subcommands"
 )
 
-func printStats(l *lepton.Lepton, s *Seeder) {
+/*
+var application = &subcommands.DefaultApplication{
+	Name:  "lepton",
+	Title: "Lepton drives a FLIR Lepton on a Raspberry Pi.",
+	Commands: []*subcommands.Command{
+		subcommands.CmdHelp,
+		cmdPowerOff,
+		cmdPowerOn,
+		cmdQuery,
+		cmdRun,
+	},
+}
+*/
+
+func printStats(l *lepton.Lepton, s *Seeder, noCR bool) {
 	started := time.Now()
+	format := "\rframes: %d good %d duped; lines: %d good %d discard %d badsync %d broken; %d fail; %d HTTP %d Imgs %.1fs"
+	if noCR {
+		format = format[1:] + "\n"
+	}
 	for !interrupt.IsSet() {
 		leptonStats := l.Stats()
 		var seederStats SeederStats
@@ -27,16 +46,26 @@ func printStats(l *lepton.Lepton, s *Seeder) {
 		}
 		duration := time.Now().Sub(started)
 		fmt.Printf(
-			"\r%d frames %d duped %d dummy %d badsync %d broken %d fail %d HTTP %d Imgs %.1fs",
+			format,
 			leptonStats.GoodFrames, leptonStats.DuplicateFrames,
-			leptonStats.DummyLines, leptonStats.SyncFailures,
-			leptonStats.BrokenPackets, leptonStats.TransferFails,
+			leptonStats.GoodLines, leptonStats.DiscardLines, leptonStats.BadSyncLines,
+			leptonStats.BrokenLines, leptonStats.TransferFails,
 			seederStats.HTTPReqs, seederStats.ImgsSent,
 			duration.Seconds())
-		time.Sleep(time.Second)
+		if noCR {
+			time.Sleep(2 * time.Second)
+		} else {
+			time.Sleep(time.Second)
+		}
 	}
 	fmt.Print("\n")
 }
+
+/*
+func main() {
+	os.Exit(subcommands.Run(application, nil))
+}
+*/
 
 func mainImpl() error {
 	cpuprofile := flag.String("cpuprofile", "", "dump CPU profile in file")
@@ -73,17 +102,20 @@ func mainImpl() error {
 		return err
 	}
 
+	if status, err := l.GetStatus(); err == nil {
+		fmt.Printf("State: %s\n", status.CameraStatus)
+	}
 	if serial, err := l.GetSerial(); err == nil {
-		fmt.Printf("Lepton serial: 0x%x\n", serial)
+		fmt.Printf("Serial: 0x%x\n", serial)
 	}
 	if uptime, err := l.GetUptime(); err == nil {
-		fmt.Printf("Lepton uptime: %.2fs\n", uptime.Seconds())
+		fmt.Printf("Uptime: %.2fs\n", uptime.Seconds())
 	}
 	if temp, err := l.GetTemperature(); err == nil {
-		fmt.Printf("Lepton temp: %.2fK\n", float32(temp)*0.01)
+		fmt.Printf("Temperature: %s\n", temp)
 	}
 	if temp, err := l.GetTemperatureHousing(); err == nil {
-		fmt.Printf("Lepton temp: %.2fK (housing)\n", float32(temp)*0.01)
+		fmt.Printf("Temperature: %s (housing)\n", temp)
 	}
 	if *query {
 		return nil
@@ -126,7 +158,7 @@ func mainImpl() error {
 	}
 
 	fmt.Printf("\n")
-	printStats(l, s)
+	printStats(l, s, *verbose)
 	return nil
 }
 

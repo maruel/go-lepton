@@ -22,39 +22,40 @@ type Command uint16
 
 // All the available commands.
 const (
-	AGCEnable                 = Command(0x0100) // 2   GET/SET
-	AgcRoiSelect              = Command(0x0108) // 4   GET/SET
-	AgcHistogramStats         = Command(0x010C) // 4   GET
-	AgcHeqDampFactor          = Command(0x0124) // 1   GET/SET
-	AgcHeqClipLimitHigh       = Command(0x012C) // 1   GET/SET
-	AgcHeqClipLimitLow        = Command(0x0130) // 1   GET/SET
-	AgcHeqEmptyCounts         = Command(0x013C) // 1   GET/SET
-	AgcHeqOutputScaleFactor   = Command(0x0144) // 2   GET/SET
-	AgcCalculationEnable      = Command(0x0148) // 2   GET/SET
-	SysPing                   = Command(0x0200) // 0   RUN
-	SysStatus                 = Command(0x0204) // 4   GET
-	SysSerialNumber           = Command(0x0208) // 4   GET
-	SysUptime                 = Command(0x020C) // 2   GET
-	SysHousingTemperature     = Command(0x0210) // 1   GET
-	SysTemperature            = Command(0x0214) // 1   GET
-	SysTelemetryEnable        = Command(0x0218) // 2   GET/SET
-	SysTelemetryLocation      = Command(0x021C) // 2   GET/SET
-	SysFlatFieldFrames        = Command(0x0224) // 2   GET/SET It's an enum
-	SysCustomSerialNumber     = Command(0x0228) // 16  GET It's a string
-	SysRoiSceneStats          = Command(0x022C) // 4   GET
-	SysRoiSceneSelect         = Command(0x0230) // 4   GET/SET
-	SysThermalShutdownCount   = Command(0x0234) // 1   GET Number of times it exceeded 80C
-	SysShutterPosition        = Command(0x0238) // 2   GET/SET
-	SysFFCMode                = Command(0x023C) // 20  GET/SET Manual control
-	SysFCCRunNormalization    = Command(0x0240) // 0   RUN
-	SysFCCStatus              = Command(0x0244) // 2   GET
-	VidColorLookupSelect      = Command(0x0304) // 2   GET/SET
-	VidColorLookupTransfer    = Command(0x0308) // 512 GET/SET
-	VidFocusCalculationEnable = Command(0x030C) // 2   GET/SET
-	VidFocusRoiSelect         = Command(0x0310) // 4   GET/SET
-	VidFocusMetricThreshold   = Command(0x0314) // 2   GET/SET
-	VidFocusMetricGet         = Command(0x0318) // 2   GET
-	VidVideoFreezeEnable      = Command(0x0324) // 2   GET/SET
+	AGCEnable                 Command = 0x0100 // 2   GET/SET
+	AgcRoiSelect              Command = 0x0108 // 4   GET/SET
+	AgcHistogramStats         Command = 0x010C // 4   GET
+	AgcHeqDampFactor          Command = 0x0124 // 1   GET/SET
+	AgcHeqClipLimitHigh       Command = 0x012C // 1   GET/SET
+	AgcHeqClipLimitLow        Command = 0x0130 // 1   GET/SET
+	AgcHeqEmptyCounts         Command = 0x013C // 1   GET/SET
+	AgcHeqOutputScaleFactor   Command = 0x0144 // 2   GET/SET
+	AgcCalculationEnable      Command = 0x0148 // 2   GET/SET
+	SysPing                   Command = 0x0200 // 0   RUN
+	SysStatus                 Command = 0x0204 // 4   GET
+	SysSerialNumber           Command = 0x0208 // 4   GET
+	SysUptime                 Command = 0x020C // 2   GET
+	SysHousingTemperature     Command = 0x0210 // 1   GET
+	SysTemperature            Command = 0x0214 // 1   GET
+	SysTelemetryEnable        Command = 0x0218 // 2   GET/SET
+	SysTelemetryLocation      Command = 0x021C // 2   GET/SET
+	SysExecuteFrameAverage    Command = 0x0220 // 0   RUN     Undocumented but listed in SDK
+	SysFlatFieldFrames        Command = 0x0224 // 2   GET/SET It's an enum, max is 128
+	SysCustomSerialNumber     Command = 0x0228 // 16  GET     It's a string
+	SysRoiSceneStats          Command = 0x022C // 4   GET
+	SysRoiSceneSelect         Command = 0x0230 // 4   GET/SET
+	SysThermalShutdownCount   Command = 0x0234 // 1   GET     Number of times it exceeded 80C
+	SysShutterPosition        Command = 0x0238 // 2   GET/SET
+	SysFFCMode                Command = 0x023C // 20  GET/SET Manual control
+	SysFCCRunNormalization    Command = 0x0240 // 0   RUN
+	SysFCCStatus              Command = 0x0244 // 2   GET
+	VidColorLookupSelect      Command = 0x0304 // 2   GET/SET
+	VidColorLookupTransfer    Command = 0x0308 // 512 GET/SET
+	VidFocusCalculationEnable Command = 0x030C // 2   GET/SET
+	VidFocusRoiSelect         Command = 0x0310 // 4   GET/SET
+	VidFocusMetricThreshold   Command = 0x0314 // 2   GET/SET
+	VidFocusMetricGet         Command = 0x0318 // 2   GET
+	VidVideoFreezeEnable      Command = 0x0324 // 2   GET/SET
 )
 
 // RegisterAddress is a valid register that can be read or written to.
@@ -62,29 +63,29 @@ type RegisterAddress uint16
 
 // All the available registers.
 const (
-	RegPower       = RegisterAddress(0)
-	RegStatus      = RegisterAddress(2)
-	RegCommandID   = RegisterAddress(4)
-	RegDataLength  = RegisterAddress(6)
-	RegData0       = RegisterAddress(8)
-	RegData1       = RegisterAddress(10)
-	RegData2       = RegisterAddress(12)
-	RegData3       = RegisterAddress(14)
-	RegData4       = RegisterAddress(16)
-	RegData5       = RegisterAddress(18)
-	RegData6       = RegisterAddress(20)
-	RegData7       = RegisterAddress(22)
-	RegData8       = RegisterAddress(24)
-	RegData9       = RegisterAddress(26)
-	RegData10      = RegisterAddress(28)
-	RegData11      = RegisterAddress(30)
-	RegData12      = RegisterAddress(32)
-	RegData13      = RegisterAddress(34)
-	RegData14      = RegisterAddress(36)
-	RegData15      = RegisterAddress(38)
-	RegDataCRC     = RegisterAddress(40)
-	RegDataBuffer0 = RegisterAddress(0xF800)
-	RegDataBuffer1 = RegisterAddress(0xFC00)
+	RegPower       RegisterAddress = 0
+	RegStatus      RegisterAddress = 2
+	RegCommandID   RegisterAddress = 4
+	RegDataLength  RegisterAddress = 6
+	RegData0       RegisterAddress = 8
+	RegData1       RegisterAddress = 10
+	RegData2       RegisterAddress = 12
+	RegData3       RegisterAddress = 14
+	RegData4       RegisterAddress = 16
+	RegData5       RegisterAddress = 18
+	RegData6       RegisterAddress = 20
+	RegData7       RegisterAddress = 22
+	RegData8       RegisterAddress = 24
+	RegData9       RegisterAddress = 26
+	RegData10      RegisterAddress = 28
+	RegData11      RegisterAddress = 30
+	RegData12      RegisterAddress = 32
+	RegData13      RegisterAddress = 34
+	RegData14      RegisterAddress = 36
+	RegData15      RegisterAddress = 38
+	RegDataCRC     RegisterAddress = 40
+	RegDataBuffer0 RegisterAddress = 0xF800
+	RegDataBuffer1 RegisterAddress = 0xFC00
 )
 
 // RegStatus bitmask.
@@ -168,6 +169,28 @@ type I2C struct {
 }
 
 func MakeI2C() (*I2C, error) {
+	// TODO(maruel): Use device tree instead of old style i2c-dev fake device.
+	//
+	// See "Method 4" of
+	// https://www.kernel.org/doc/Documentation/i2c/instantiating-devices
+	//
+	// Running:
+	//     echo "lepton 0x2A" | sudo tee /sys/bus/i2c/devices/i2c-1/new_device
+	//
+	// Creates /sys/class/i2c-adapter/i2c-1/1-002a/ which could be used to
+	// communicate with the device. The goal is to remove the need for
+	// /dev/i2c-1 created by driver i2c-dev.
+	/*
+		root := "/sys/class/i2c-adapter"
+		files, err := ioutil.ReadDir(root)
+		if len(files) == 0 {
+			if err != nil {
+				return nil, err
+			}
+			return nil, fmt.Errorf("failed to find an i2c adapter in %s", root)
+		}
+		path := filepath.Join(root, files[0].Name(), "device")
+	*/
 	path := fmt.Sprintf("/dev/i2c-%v", 1)
 	f, err := os.OpenFile(path, os.O_RDWR, os.ModeExclusive)
 	if err != nil {

@@ -6,18 +6,32 @@
 // port.
 //
 // References:
+// Official FLIR Lepton page:
+//   http://www.flir.com/cores/content/?id=66257
+//   http://www.flir.com/cvs/cores/view/?id=51878
+//
 // Official FLIR Lepton FAQ:
 //   http://www.flir.com/cvs/cores/knowledgebase/browse.cfm?CFTREEITEMKEY=914
 //
-// DIY:
-//   http://www.pureengineering.com/projects/lepton
-//
 // FLIR LEPTON® Long Wave Infrared (LWIR) Datasheet
-//   https://drive.google.com/file/d/0B3wmCw6bdPqFblZsZ3l4SXM4R28/view
+//   http://cvs.flir.com/lepton-data-brief
+//   https://drive.google.com/file/d/0B3wmCw6bdPqFblZsZ3l4SXM4R28/view (copy)
 //   p. 7 Sensitivity is below 0.05°C
 //   p. 19-21 Telemetry mode
 //   p. 22-24 Radiometry mode; TODO(maruel): Enable.
 //   p. 28-35 SPI protocol explanation.
+//
+// Lepton™ Software Interface Description Document (IDD) for i²c protocol:
+//   (Application level and SDK doc)
+//   http://cvs.flir.com/lepton-idd
+//   https://drive.google.com/file/d/0B3wmCw6bdPqFOHlQbExFbWlXS0k/view (copy)
+//   p. 24    i²c command format.
+//   p. 36-37 Ping and Status, implement first to ensure i²c works.
+//   p. 42-43 Telemetry enable.
+//   Radiometry is not documented (!?)
+//
+// DIY:
+//   http://www.pureengineering.com/projects/lepton
 //
 // Help group mailing list:
 //   https://groups.google.com/d/forum/flir-lepton
@@ -25,23 +39,19 @@
 // Connecting to a Raspberry Pi:
 //   https://github.com/PureEngineering/LeptonModule/wiki
 //
-// Lepton™ Software Interface Description Document (IDD) for i²c protocol:
-//   (Application level and SDK doc)
-//   https://drive.google.com/file/d/0B3wmCw6bdPqFOHlQbExFbWlXS0k/view
-//   p. 24    i²c command format.
-//   p. 36-37 Ping and Status, implement first to ensure i²c works.
-//   p. 42-43 Telemetry enable.
-//   Radiometry is not documented (!?)
-//
 // Information about the Raspberry Pi SPI driver:
 //   http://elinux.org/RPi_SPI
 package lepton
 
+// "stringer" can be installed with "go get golang.org/x/tools/cmd/stringer"
+//go:generate stringer -output=strings_gen.go -type=CameraStatus,Command,FFCState,RegisterAddress
+
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"time"
 )
 
@@ -49,11 +59,11 @@ type CameraStatus uint32
 
 // Valid values for Status.
 const (
-	SystemReady              = CameraStatus(0)
-	SystemInitializing       = CameraStatus(1)
-	SystemInLowPowerMode     = CameraStatus(2)
-	SystemGoingIntoStandby   = CameraStatus(3)
-	SystemFlatFieldInProcess = CameraStatus(4)
+	SystemReady              CameraStatus = 0
+	SystemInitializing       CameraStatus = 1
+	SystemInLowPowerMode     CameraStatus = 2
+	SystemGoingIntoStandby   CameraStatus = 3
+	SystemFlatFieldInProcess CameraStatus = 4
 )
 
 type Stats struct {
@@ -61,15 +71,20 @@ type Stats struct {
 	GoodFrames      int
 	DuplicateFrames int
 	TransferFails   int
-	BrokenPackets   int
-	SyncFailures    int
-	DummyLines      int
+	GoodLines       int
+	BrokenLines     int
+	DiscardLines    int
+	BadSyncLines    int
 }
 
+// Lepton controls a FLIR Lepton. It assumes a specific breakout board. Sadly
+// the breakout board doesn't expose the PWR_DWN_L and RESET_L lines so it is
+// impossible to shut down the Lepton.
 type Lepton struct {
 	spi         *SPI
 	i2c         *I2C
 	currentImg  *LeptonBuffer
+	previousImg *LeptonBuffer
 	currentLine int
 	packet      [164]uint8 // one line is sent as a SPI packet.
 	stats       Stats
@@ -89,6 +104,7 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 		// TODO(maruel): Figure out a way to determine if the driver decides to
 		// round down or up.
 		speed = 7900000
+		//speed = 15700000
 	}
 	if speed < 3900000 {
 		return nil, errors.New("speed specified is too slow")
@@ -123,13 +139,19 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 	if status.CameraStatus != SystemReady {
 		log.Printf("WARNING: camera is not ready: %s", status)
 	}
+
+	// Setup telemetry.
 	// Warning: Assumes AGC is disabled. There's no code here to enable it anyway.
-	if err := i2c.SetAttribute(SysTelemetryEnable, []uint16{0, 1}); err != nil {
+	if err := i2c.SetAttribute(SysTelemetryEnable, []uint16{1, 0}); err != nil {
 		return nil, err
 	}
+	// I had trouble using it as footer.
+	if err := i2c.SetAttribute(SysTelemetryLocation, []uint16{0, 0}); err != nil {
+		return nil, err
+	}
+
 	spi = nil
 	i2c = nil
-
 	return out, nil
 }
 
@@ -175,23 +197,23 @@ func (l *Lepton) GetUptime() (time.Duration, error) {
 }
 
 // GetTemperatureHousing returns the temperature in centi-Kelvin.
-func (l *Lepton) GetTemperatureHousing() (CentiK, error) {
+func (l *Lepton) GetTemperatureHousing() (CentiC, error) {
 	p := []uint16{0}
 	if err := l.i2c.GetAttribute(SysHousingTemperature, p); err != nil {
 		return 0, err
 	}
 	log.Printf("temp: 0x%04x", p[0])
-	return CentiK(p[0]), nil
+	return CentiK(p[0]).ToC(), nil
 }
 
 // GetTemperature returns the temperature in centi-Kelvin.
-func (l *Lepton) GetTemperature() (CentiK, error) {
+func (l *Lepton) GetTemperature() (CentiC, error) {
 	p := []uint16{0}
 	if err := l.i2c.GetAttribute(SysTemperature, p); err != nil {
 		return 0, err
 	}
 	log.Printf("temp: 0x%04x", p[0])
-	return CentiK(p[0]), nil
+	return CentiK(p[0]).ToC(), nil
 }
 
 func (l *Lepton) Close() error {
@@ -207,6 +229,13 @@ func (l *Lepton) Close() error {
 	return err
 }
 
+// TriggerFFC forces a Flat-Field Correction to be done by the camera for
+// recalibration. It takes 23 frames and the camera runs at 27fps so it lasts
+// less than a second.
+func (l *Lepton) TriggerFFC() error {
+	return nil
+}
+
 func (l *Lepton) Stats() Stats {
 	// TODO(maruel): atomic.
 	return l.stats
@@ -215,7 +244,7 @@ func (l *Lepton) Stats() Stats {
 // ReadImg reads an image into an image. It must be 80x60.
 func (l *Lepton) ReadImg(r *LeptonBuffer) {
 	l.currentLine = -1
-	prevImg := l.currentImg
+	l.previousImg = l.currentImg
 	l.currentImg = r
 	for {
 		// TODO(maruel): Fail after N errors?
@@ -225,7 +254,7 @@ func (l *Lepton) ReadImg(r *LeptonBuffer) {
 		for l.currentLine != 62 {
 			l.readLine()
 		}
-		if prevImg == nil || !prevImg.Equal(l.currentImg) {
+		if l.previousImg == nil || !l.previousImg.Equal(l.currentImg) {
 			l.stats.GoodFrames++
 			l.currentImg.updateStats()
 			break
@@ -254,7 +283,7 @@ func (l *Lepton) readLine() {
 		l.stats.TransferFails++
 		l.currentLine = -1
 		if l.stats.LastFail == nil {
-			fmt.Fprintf(os.Stderr, "\nI/O fail: %s\n", err)
+			log.Printf("I/O fail: %s", err)
 			l.stats.LastFail = err
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -265,8 +294,8 @@ func (l *Lepton) readLine() {
 	if (l.packet[0] & 0xf) == 0x0f {
 		// Discard packet. This happens as the bandwidth of SPI is larger than data
 		// rate.
-		l.currentLine = -1
-		l.stats.DummyLines++
+		//l.currentLine = -1
+		l.stats.DiscardLines++
 		return
 	}
 
@@ -276,82 +305,182 @@ func (l *Lepton) readLine() {
 	// TODO(maruel): Verify CRC (bytes 2-3) ?
 	line := int(l.packet[1])
 	if line >= 63 {
+		log.Printf("got unexpected line %d  %v", line, l.packet)
 		time.Sleep(200 * time.Millisecond)
-		l.stats.BrokenPackets++
+		l.stats.BrokenLines++
 		l.currentLine = -1
 		return
 	}
 	if line != l.currentLine+1 {
-		time.Sleep(200 * time.Millisecond)
-		l.stats.SyncFailures++
-		l.currentLine = -1
-		return
+		l.stats.BadSyncLines++
+		if line == l.currentLine {
+			log.Printf("duplicate line %d", line)
+			return
+		}
+		if line == 0 {
+			// A new frame was started, ignore the previous one.
+			log.Printf("reset")
+			l.currentLine = -1
+		} else if line == l.currentLine+2 && line >= 3 && l.previousImg != nil {
+			// Skipped a line. It may happen and just copy over the previous image.
+			// Do not copy over the telemetry line.
+			log.Printf("skipped line %d (copying from previous buffer)", line)
+			l.currentLine++
+			off := line * 80
+			copy(l.currentImg.Pix[off:off+80], l.previousImg.Pix[off:off+80])
+		} else {
+			log.Printf("expected line %d, got %d  %v", l.currentLine+1, line, l.packet)
+			time.Sleep(200 * time.Millisecond)
+			l.currentLine = -1
+			return
+		}
 	}
 
-	// Convert the line from byte to uint16. 14 bits significant.
 	l.currentLine++
-	if line < 60 {
+	//log.Printf("line: %d", l.currentLine)
+	// Convert the line from byte to uint16. 14 bits significant.
+	l.stats.GoodLines++
+	if 3 <= line && line < 63 {
+		line -= 3
+		// Don't forget the 2 uint16 header (ID + CRC).
 		for x := 0; x < 80; x++ {
-			l.currentImg.Pix[line*80+x] = (uint16(l.packet[2*x+4])<<8 | uint16(l.packet[2*x+5]))
+			l.currentImg.Pix[line*80+x] = uint16(l.packet[2*x+4])<<8 | uint16(l.packet[2*x+5])
 		}
-	} else if line == 60 {
+	} else if line == 0 {
 		// Telemetry line.
-		// Everything is in big endian uint16.
-		offset := func(x int) uint16 {
-			return uint16(l.packet[2*x+4])<<8 | uint16(l.packet[2*x+5])
+		copy(l.currentImg.Raw[:], l.packet[4:])
+		if err := binary.Read(bytes.NewBuffer(l.currentImg.Raw[:]), binary.BigEndian, &l.currentImg.Telemetry); err != nil {
+			fmt.Printf("\nFAILURE: %s\n", err)
 		}
-		revision := offset(0)
-		// Ensures the revision is known, remove once it's known to work.
-		if revision != 8 && revision != 9 {
-			panic(fmt.Errorf("Unexpected revision 0x%X", revision))
-		}
-		l.currentImg.SinceStartup = time.Duration(uint32(offset(1))<<16|uint32(offset(2))) * time.Millisecond
-
-		status := uint32(offset(3))<<16 | uint32(offset(4))
-		// Ensures all reserved bits are 0, just to confirm we didn't mess up. Remove this code once it's proved to be working.
-		if status&0xffefefc7 != 0 {
-			panic(fmt.Errorf("Unexpected status 0x%X", status))
-		}
-		l.currentImg.FCCDesired = status&(1<<3) != 0
-		fccstate := (status & (1<<5 + 1<<4)) >> 4
-		if revision <= 8 {
-			switch fccstate {
-			case 0:
-				l.currentImg.FCCState = FCCNever
-			case 1:
-				l.currentImg.FCCState = FCCInProgress
-			case 2:
-				l.currentImg.FCCState = FCCComplete
-			default:
-				panic(fmt.Errorf("unexpected fccstate %d", fccstate))
+		rowA := &l.currentImg.Telemetry
+		i := l.currentImg
+		i.Revision = rowA.TelemetryRevision
+		//i.SinceStartup = time.Duration(rowA.TimeCounter) * time.Millisecond
+		//copy(i.DeviceSerial[:], rowA.ModuleSerial[:])
+		//i.DeviceVersion = rowA.SoftwareRevision
+		//i.FrameCount = rowA.FrameCounter
+		i.Mean = rowA.FrameMean
+		i.RawTemperature = rowA.FPATempCounts
+		i.Temperature = rowA.FPATemp.ToC()
+		i.RawTemperatureHousing = rowA.HousingTempCounts
+		i.TemperatureHousing = rowA.HousingTemp.ToC()
+		i.FFCTemperature = rowA.FPATempLastFFC.ToC()
+		i.FFCSince = time.Duration(rowA.TimeCounterLastFFC) * time.Millisecond
+		i.FFCTemperatureHousing = rowA.HousingTempLastFFC.ToC()
+		i.FFCLog2 = rowA.Log2FFCFrames
+		//if rowA.StatusBits&statusMask != 0 {
+		//	fmt.Printf("\nMask: 0x%X Status: 0x%X\n", statusMask, rowA.StatusBits)
+		//}
+		//i.FFCDesired = rowA.StatusBits&statusFFCDesired != 0
+		//i.AGCEnabled = rowA.StatusBits&statusAGCState != 0
+		//i.Overtemp = rowA.StatusBits&statusOvertemp != 0
+		// i.FFCState
+		/*
+			fccstate := (status & (1<<(31-5) + 1<<(31-4))) >> (31 - 4)
+			if l.currentImg.Revision == 8 {
+				switch fccstate {
+				case 0:
+					i.FFCState = FFCNever
+				case 1:
+					i.FFCState = FFCInProgress
+				case 2:
+					i.FFCState = FFCComplete
+				default:
+					panic(fmt.Errorf("unexpected fccstate %d; %v", fccstate, l.packet))
+				}
+			} else {
+				switch fccstate {
+				case 0:
+					i.FFCState = FFCNever
+				case 2:
+					i.FFCState = FFCInProgress
+				case 3:
+					i.FFCState = FFCComplete
+				default:
+					//fmt.Fprintf(os.Stderr, "unexpected fccstate %d; %v", fccstate, l.packet)
+				}
 			}
-		} else {
-			switch fccstate {
-			case 0:
-				l.currentImg.FCCState = FCCNever
-			case 2:
-				l.currentImg.FCCState = FCCInProgress
-			case 3:
-				l.currentImg.FCCState = FCCComplete
-			default:
-				panic(fmt.Errorf("unexpected fccstate %d", fccstate))
-			}
-		}
-		// Should never be enabled.
-		l.currentImg.AGCEnabled = status&(1<<12) != 0
-		l.currentImg.Overtemp = status&(1<<20) != 0
-
-		copy(l.currentImg.DeviceSerial[:], l.packet[5:8])
-		l.currentImg.DeviceVersion = uint64(offset(13))<<48 | uint64(offset(14))<<32 | uint64(offset(15))<<16 | uint64(offset(16))
-		l.currentImg.FrameCount = uint32(offset(20))<<16 | uint32(offset(21))
-		l.currentImg.Mean = offset(22)
-		l.currentImg.RawTemperature = offset(23)
-		l.currentImg.Temperature = CentiK(offset(24))
-		l.currentImg.RawTemperatureHousing = offset(25)
-		l.currentImg.TemperatureHousing = CentiK(offset(26))
-		l.currentImg.FCCTemperature = CentiK(offset(29))
-		l.currentImg.FCCSince = time.Duration(uint32(offset(30))<<16|uint32(offset(31))) * time.Millisecond
-		l.currentImg.FCCTemperatureHousing = CentiK(offset(32))
-		l.currentImg.FCCLog2 = offset(74)
+		*/
 	}
 }
+
+// As documented at p.19-20.
+// '*' means the value observed in practice make sense.
+// Value after '-' is observed value.
+type TelemetryRowA struct {
+	TelemetryRevision  uint16    // 0 *
+	TimeCounter        uint32    // 1 Looks invalid - 49,34,0,148 - 86,48,0,164, doesn't make sense
+	StatusBits         uint32    // 3 Bit field. Looks invalid - 8,8,0,0
+	ModuleSerial       [16]uint8 // 5 Is empty (!)
+	SoftwareRevision   uint64    // 13 Seems to be little endian - 229402106072596480
+	Reserved17         uint16    // 17 - 1101
+	Reserved18         uint16    // 18
+	Reserved19         uint16    // 19
+	FrameCounter       uint32    // 20
+	FrameMean          uint16    // 22 * Maybe it's FrameCounter?
+	FPATempCounts      uint16    // 23
+	FPATemp            CentiK    // 24 *
+	HousingTempCounts  uint16    // 25
+	HousingTemp        CentiK    // 27 *
+	Reserved27         uint16    // 27
+	Reserved28         uint16    // 28
+	FPATempLastFFC     CentiK    // 29
+	TimeCounterLastFFC uint32    // 30
+	HousingTempLastFFC CentiK    // 32
+	Reserved33         uint16    // 33
+	AGCROILeft         uint16    // 35 * - 0 (Likely inversed, haven't confirmed)
+	AGCROITop          uint16    // 34 * - 0
+	AGCROIRight        uint16    // 36 * - 79 - SDK was wrong!
+	AGCROIBottom       uint16    // 37 * - 59 - SDK was wrong!
+	AGCClipLimitHigh   uint16    // 38 *
+	AGCClipLimitLow    uint16    // 39 *
+	Reserved40         uint16    // 40 - 1
+	Reserved41         uint16    // 41 - 128
+	Reserved42         uint16    // 42 - 64
+	Reserved43         uint16    // 43
+	Reserved44         uint16    // 44
+	Reserved45         uint16    // 45
+	Reserved46         uint16    // 46
+	Reserved47         uint16    // 47 - 1
+	Reserved48         uint16    // 48 - 128
+	Reserved49         uint16    // 49 - 1
+	Reserved50         uint16    // 50
+	Reserved51         uint16    // 51
+	Reserved52         uint16    // 52
+	Reserved53         uint16    // 53
+	Reserved54         uint16    // 54
+	Reserved55         uint16    // 55
+	Reserved56         uint16    // 56 - 30
+	Reserved57         uint16    // 57
+	Reserved58         uint16    // 58 - 1
+	Reserved59         uint16    // 59 - 1
+	Reserved60         uint16    // 60 - 78
+	Reserved61         uint16    // 61 - 58
+	Reserved62         uint16    // 62 - 7
+	Reserved63         uint16    // 63 - 90
+	Reserved64         uint16    // 64 - 40
+	Reserved65         uint16    // 65 - 210
+	Reserved66         uint16    // 66 - 255
+	Reserved67         uint16    // 67 - 255
+	Reserved68         uint16    // 68 - 23
+	Reserved69         uint16    // 69 - 6
+	Reserved70         uint16    // 70
+	Reserved71         uint16    // 71
+	Reserved72         uint16    // 72 - 7
+	Reserved73         uint16    // 73
+	Log2FFCFrames      uint16    // 74 Found 3, should be 27?
+	Reserved75         uint16    // 75
+	Reserved76         uint16    // 76
+	Reserved77         uint16    // 77
+	Reserved78         uint16    // 78
+	Reserved79         uint16    // 79
+}
+
+// As documented as page.21
+const (
+	statusFFCDesired uint32 = 1 << (31 - 3)
+	statusFFCState   uint32 = 1<<(31-4) | 1<<(31-5)
+	statusAGCState   uint32 = 1 << (31 - 12)
+	statusOvertemp   uint32 = 1 << (31 - 20)
+	statusMask              = ^(statusFFCDesired | statusFFCState | statusAGCState | statusOvertemp)
+)

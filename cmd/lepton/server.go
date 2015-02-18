@@ -32,7 +32,7 @@ var rootTmpl = template.Must(template.New("name").Parse(`
 		<script>
 			function reload() {
 				var still = document.getElementById("still");
-				still.src = "/still.png#" + new Date().getTime();
+				still.src = "/still/rgb/latest.png#" + new Date().getTime();
 			}
 
 			function loadStats() {
@@ -48,13 +48,13 @@ var rootTmpl = template.Must(template.New("name").Parse(`
 				drawing.onload = function() {
 					context.drawImage(drawing, 0, 0);
 				};
-				drawing.src = "/still.png";
+				drawing.src = "/still/rgb/latest.png";
 			}
 		</script>
 	</head>
 	<body>
 		Still:<br>
-		<a href="/still.png"><img class="large" id="still" src="/still.png" onload="reload()"></img></a>
+		<a href="/still/rgb/latest.png"><img class="large" id="still" src="/still/rgb/latest.png" onload="reload()"></img></a>
 		<br>
 		{{.Stats}}
 		<br>
@@ -81,11 +81,13 @@ func StartWebServer(port int) *WebServer {
 	w := &WebServer{lastIndex: -1}
 	mux := mux.NewRouter()
 	mux.HandleFunc("/", w.root)
-	mux.HandleFunc("/favicon.ico", w.stillLatestPNG)
-	mux.HandleFunc("/still/{id:[0-9]+}.png", w.stillPNG)
-	mux.HandleFunc("/still/latest.png", w.stillLatestPNG)
-	mux.HandleFunc("/still/{id:[0-9]+}.JSON", w.stillJSON)
-	mux.HandleFunc("/still/latest.JSON", w.stillLatestJSON)
+	mux.HandleFunc("/favicon.ico", w.stillGrayLatestPNG)
+	mux.HandleFunc("/still/gray/{id:[0-9]+}.png", w.stillGrayPNG)
+	mux.HandleFunc("/still/gray/latest.png", w.stillGrayLatestPNG)
+	mux.HandleFunc("/still/rgb/{id:[0-9]+}.png", w.stillRGBPNG)
+	mux.HandleFunc("/still/rgb/latest.png", w.stillRGBLatestPNG)
+	mux.HandleFunc("/still/{id:[0-9]+}.json", w.stillJSON)
+	mux.HandleFunc("/still/latest.json", w.stillLatestJSON)
 	fmt.Printf("Listening on %d\n", port)
 	go http.ListenAndServe(fmt.Sprintf(":%d", port), loggingHandler{mux})
 	return w
@@ -100,24 +102,47 @@ func (s *WebServer) root(w http.ResponseWriter, r *http.Request) {
 	s.lock.Unlock()
 }
 
-func (s *WebServer) stillPNG(w http.ResponseWriter, r *http.Request) {
+func (s *WebServer) stillGrayPNG(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	id, err := strconv.Atoi(mux.Vars(r)["id"])
 	if err != nil {
 		panic("internal error")
 	}
 	img := image.NewGray(image.Rect(0, 0, 80, 60))
-	s.getImage(id).AGC(img)
+	s.getImage(id).AGCGrayLinear(img)
 	if err := png.Encode(w, img); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
-func (s *WebServer) stillLatestPNG(w http.ResponseWriter, r *http.Request) {
+func (s *WebServer) stillGrayLatestPNG(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	img := image.NewGray(image.Rect(0, 0, 80, 60))
-	s.getLatestImage().AGC(img)
+	s.getLatestImage().AGCGrayLinear(img)
+	if err := png.Encode(w, img); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *WebServer) stillRGBPNG(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/png")
+	id, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil {
+		panic("internal error")
+	}
+	img := image.NewNRGBA(image.Rect(0, 0, 80, 60))
+	s.getImage(id).PseudoColor(img)
+	if err := png.Encode(w, img); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *WebServer) stillRGBLatestPNG(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+	img := image.NewNRGBA(image.Rect(0, 0, 80, 60))
+	s.getLatestImage().PseudoColor(img)
 	if err := png.Encode(w, img); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
