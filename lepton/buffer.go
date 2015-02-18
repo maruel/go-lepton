@@ -97,39 +97,79 @@ func (l *LeptonBuffer) Gray16At(x, y int) uint16 {
 	return l.Pix[y*80+x]
 }
 
+// DiffGray encodes the difference in the image as a 8 bit image centered at
+// 128.
+func (l *LeptonBuffer) DiffGray(r *LeptonBuffer) *image.Gray {
+	dst := image.NewGray(image.Rect(0, 0, 80, 60))
+	for y := 0; y < 60; y++ {
+		base := y * 80
+		for x := 0; x < 80; x++ {
+			i := int(l.Gray16At(x, y)) - int(r.Gray16At(x, y))
+			if i > 127 {
+				i = 127
+			} else if i < -128 {
+				i = -128
+			}
+			dst.Pix[base+x] = uint8(i + 128)
+		}
+	}
+	return dst
+}
+
+// DiffRGB encodes the difference in the image as an RGB image.
+func (l *LeptonBuffer) DiffRGB(r *LeptonBuffer) *image.NRGBA {
+	dst := image.NewNRGBA(image.Rect(0, 0, 80, 60))
+	for y := 0; y < 60; y++ {
+		for x := 0; x < 80; x++ {
+			i := int(l.Gray16At(x, y)) - int(r.Gray16At(x, y))
+			if i > 127 {
+				i = 127
+			} else if i < -128 {
+				i = -128
+			}
+			dstBase := 4 * (y*80 + x)
+			palBase := 3 * (i + 128)
+			dst.Pix[dstBase] = palette[palBase]
+			dst.Pix[dstBase+1] = palette[palBase+1]
+			dst.Pix[dstBase+2] = palette[palBase+2]
+			dst.Pix[dstBase+3] = 255
+		}
+	}
+	return dst
+}
+
 // AGCGrayLinear reduces the dynamic range of a 14 bits down to 8 bits very
 // naively without gamma.
-func (l *LeptonBuffer) AGCGrayLinear(dst *image.Gray) {
-	if dst.Rect.Min.X != 0 || dst.Rect.Min.Y != 0 || dst.Rect.Max.X != 80 || dst.Rect.Max.Y != 60 {
-		panic("invalid image format")
-	}
+func (l *LeptonBuffer) AGCGrayLinear() *image.Gray {
+	dst := image.NewGray(image.Rect(0, 0, 80, 60))
 	floor := l.Min
 	delta := int(l.Max - floor)
 	for y := 0; y < 60; y++ {
+		base := y * 80
 		for x := 0; x < 80; x++ {
-			dst.Pix[y*80+x] = uint8(int(l.Gray16At(x, y)-floor) * 255 / delta)
+			dst.Pix[base+x] = uint8(int(l.Gray16At(x, y)-floor) * 255 / delta)
 		}
 	}
+	return dst
 }
 
 // AGCGrayLinear reduces the dynamic range of a 14 bits down to 8 bits very
 // naively without gamma on a colorful palette.
-func (l *LeptonBuffer) AGCRGBLinear(dst *image.NRGBA) {
-	if dst.Rect.Min.X != 0 || dst.Rect.Min.Y != 0 || dst.Rect.Max.X != 80 || dst.Rect.Max.Y != 60 {
-		panic("invalid image format")
-	}
+func (l *LeptonBuffer) AGCRGBLinear() *image.NRGBA {
+	dst := image.NewNRGBA(image.Rect(0, 0, 80, 60))
 	floor := l.Min
 	delta := int(l.Max - floor)
 	for y := 0; y < 60; y++ {
 		for x := 0; x < 80; x++ {
-			i := 4 * (y*80 + x)
-			j := 3 * (int(l.Gray16At(x, y)-floor) * 255 / delta)
-			dst.Pix[i] = palette[j]
-			dst.Pix[i+1] = palette[j+1]
-			dst.Pix[i+2] = palette[j+2]
-			dst.Pix[i+3] = 255
+			dstBase := 4 * (y*80 + x)
+			palBase := 3 * (int(l.Gray16At(x, y)-floor) * 255 / delta)
+			dst.Pix[dstBase] = palette[palBase]
+			dst.Pix[dstBase+1] = palette[palBase+1]
+			dst.Pix[dstBase+2] = palette[palBase+2]
+			dst.Pix[dstBase+3] = 255
 		}
 	}
+	return dst
 }
 
 // Gray14ToRGB converts the image into a RGB with pseudo-colors.
@@ -168,26 +208,55 @@ func Gray14ToRGB(intensity uint16) color.NRGBA {
 
 // PseudoColor reduces the dynamic range of a 14 bits down to RGB. It doesn't
 // apply AGC.
-func (l *LeptonBuffer) PseudoColor(dst *image.NRGBA) {
-	if dst.Rect.Min.X != 0 || dst.Rect.Min.Y != 0 || dst.Rect.Max.X != 80 || dst.Rect.Max.Y != 60 {
-		panic("invalid image format")
-	}
+func (l *LeptonBuffer) PseudoColor() *image.NRGBA {
+	dst := image.NewNRGBA(image.Rect(0, 0, 80, 60))
 	for y := 0; y < 60; y++ {
 		for x := 0; x < 80; x++ {
 			dst.SetNRGBA(x, y, Gray14ToRGB(l.Gray16At(x, y)))
 		}
 	}
+	return dst
 }
 
 func (l *LeptonBuffer) Equal(r *LeptonBuffer) bool {
 	for y := 0; y < 60; y++ {
+		base := y * 80
 		for x := 0; x < 80; x++ {
-			if l.Pix[y*80+x] != r.Pix[y*80+x] {
+			if l.Pix[base+x] != r.Pix[base+x] {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+func PaletteGray(vertical bool) *image.Gray {
+	x, y := 256, 1
+	if vertical {
+		x, y = y, x
+	}
+	dst := image.NewGray(image.Rect(0, 0, x, y))
+	for x := 0; x < 256; x++ {
+		dst.Pix[x] = uint8(x)
+	}
+	return dst
+}
+
+func PaletteRGB(vertical bool) *image.NRGBA {
+	x, y := 256, 1
+	if vertical {
+		x, y = y, x
+	}
+	dst := image.NewNRGBA(image.Rect(0, 0, x, y))
+	for x := 0; x < 256; x++ {
+		dstBase := 4 * x
+		palBase := 3 * x
+		dst.Pix[dstBase] = palette[palBase]
+		dst.Pix[dstBase+1] = palette[palBase+1]
+		dst.Pix[dstBase+2] = palette[palBase+2]
+		dst.Pix[dstBase+3] = 255
+	}
+	return dst
 }
 
 // Private details.

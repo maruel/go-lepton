@@ -12,6 +12,8 @@ import (
 	"io"
 	"log"
 	"os"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
@@ -97,7 +99,9 @@ const (
 )
 
 type SPI struct {
-	f *os.File
+	closed int32
+	lock   sync.Mutex
+	f      *os.File
 }
 
 func MakeSPI(path string, speed int) (*SPI, error) {
@@ -122,6 +126,11 @@ func MakeSPI(path string, speed int) (*SPI, error) {
 }
 
 func (s *SPI) Close() error {
+	if !atomic.CompareAndSwapInt32(&s.closed, 0, 1) {
+		return io.ErrClosedPipe
+	}
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	var err error
 	if s.f != nil {
 		err = s.f.Close()
@@ -131,15 +140,26 @@ func (s *SPI) Close() error {
 }
 
 func (s *SPI) GetFlag(op uint, arg *uint64) error {
+	if atomic.LoadInt32(&s.closed) != 0 {
+		return io.ErrClosedPipe
+	}
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	return s.ioctl(op|0x80000000, unsafe.Pointer(arg))
 }
 
 func (s *SPI) SetFlag(op uint, arg uint64) error {
+	if atomic.LoadInt32(&s.closed) != 0 {
+		return io.ErrClosedPipe
+	}
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	if err := s.ioctl(op|0x40000000, unsafe.Pointer(&arg)); err != nil {
 		return err
 	}
 	actual := uint64(0)
-	if err := s.GetFlag(op, &actual); err != nil {
+	// GetFlag() without lock.
+	if err := s.ioctl(op|0x80000000, unsafe.Pointer(&actual)); err != nil {
 		return err
 	}
 	if actual != arg {
@@ -149,6 +169,11 @@ func (s *SPI) SetFlag(op uint, arg uint64) error {
 }
 
 func (s *SPI) Read(b []byte) (int, error) {
+	if atomic.LoadInt32(&s.closed) != 0 {
+		return 0, io.ErrClosedPipe
+	}
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	return s.f.Read(b)
 }
 
@@ -165,7 +190,9 @@ func (s *SPI) ioctl(op uint, arg unsafe.Pointer) error {
 //
 // It's big endian.
 type I2C struct {
-	f *os.File
+	closed int32
+	lock   sync.Mutex
+	f      *os.File
 }
 
 func MakeI2C() (*I2C, error) {
@@ -204,7 +231,7 @@ func MakeI2C() (*I2C, error) {
 
 	// Wait for the device to be booted.
 	for {
-		status, err := i.WaitIdle()
+		status, err := i.waitIdle()
 		if err != nil {
 			f.Close()
 			return nil, err
@@ -218,6 +245,11 @@ func MakeI2C() (*I2C, error) {
 }
 
 func (i *I2C) Close() error {
+	if !atomic.CompareAndSwapInt32(&i.closed, 0, 1) {
+		return io.ErrClosedPipe
+	}
+	i.lock.Lock()
+	defer i.lock.Unlock()
 	var err error
 	if i.f != nil {
 		err = i.f.Close()
@@ -226,53 +258,25 @@ func (i *I2C) Close() error {
 	return err
 }
 
-// Read is the low lever function. Shouldn't be used directly.
-func (i *I2C) Read(b []byte) (int, error) {
-	if len(b)&1 != 0 {
-		panic("lepton CCI requires 16 bits aligned read")
-	}
-	n, err := i.f.Read(b)
-	if err == nil && n != len(b) {
-		err = io.ErrShortBuffer
-	}
-	return n, err
-}
-
-// Write is the low lever function. Shouldn't be used directly.
-func (i *I2C) Write(b []byte) (int, error) {
-	if len(b)&1 != 0 {
-		panic("lepton CCI requires 16 bits aligned write")
-	}
-	n, err := i.f.Write(b)
-	return n, err
-}
-
-// WaitIdle waits for camera to be ready.
-func (i *I2C) WaitIdle() (uint16, error) {
-	for {
-		value, err := i.ReadRegister(RegStatus)
-		if err != nil || value&StatusBusyBit == 0 {
-			return value, err
-		}
-		log.Printf("i2c.WaitIdle(): device busy %x", value)
-		time.Sleep(5 * time.Millisecond)
-	}
-}
-
 func (i *I2C) GetAttribute(command Command, result []uint16) error {
 	if len(result) > 1024 {
 		return errors.New("buffer too large")
 	}
-	if _, err := i.WaitIdle(); err != nil {
+	if atomic.LoadInt32(&i.closed) != 0 {
+		return io.ErrClosedPipe
+	}
+	i.lock.Lock()
+	defer i.lock.Unlock()
+	if _, err := i.waitIdle(); err != nil {
 		return err
 	}
-	if err := i.WriteRegister(RegDataLength, uint16(len(result))); err != nil {
+	if err := i.writeRegister(RegDataLength, uint16(len(result))); err != nil {
 		return err
 	}
-	if err := i.WriteRegister(RegCommandID, uint16(command)); err != nil {
+	if err := i.writeRegister(RegCommandID, uint16(command)); err != nil {
 		return err
 	}
-	status, err := i.WaitIdle()
+	status, err := i.waitIdle()
 	if err != nil {
 		return err
 	}
@@ -280,15 +284,15 @@ func (i *I2C) GetAttribute(command Command, result []uint16) error {
 		return fmt.Errorf("error 0x%x", status>>8)
 	}
 	if len(result) <= 16 {
-		err = i.ReadData(RegData0, result)
+		err = i.readData(RegData0, result)
 	} else {
-		err = i.ReadData(RegDataBuffer0, result)
+		err = i.readData(RegDataBuffer0, result)
 	}
 	if err != nil {
 		return err
 	}
 	/* TODO(maruel): Verify CRC:
-	crc, err = i.ReadRegister(RegDataCRC)
+	crc, err = i.readRegister(RegDataCRC)
 	if err != nil {
 		return err
 	}
@@ -303,25 +307,30 @@ func (i *I2C) SetAttribute(command Command, value []uint16) error {
 	if len(value) > 1024 {
 		return errors.New("buffer too large")
 	}
-	if _, err := i.WaitIdle(); err != nil {
+	if atomic.LoadInt32(&i.closed) != 0 {
+		return io.ErrClosedPipe
+	}
+	i.lock.Lock()
+	defer i.lock.Unlock()
+	if _, err := i.waitIdle(); err != nil {
 		return err
 	}
 	var err error
 	if len(value) <= 16 {
-		err = i.WriteData(RegData0, value)
+		err = i.writeData(RegData0, value)
 	} else {
-		err = i.WriteData(RegDataBuffer0, value)
+		err = i.writeData(RegDataBuffer0, value)
 	}
 	if err != nil {
 		return err
 	}
-	if err := i.WriteRegister(RegDataLength, uint16(len(value))); err != nil {
+	if err := i.writeRegister(RegDataLength, uint16(len(value))); err != nil {
 		return err
 	}
-	if err := i.WriteRegister(RegCommandID, uint16(command)|1); err != nil {
+	if err := i.writeRegister(RegCommandID, uint16(command)|1); err != nil {
 		return err
 	}
-	status, err := i.WaitIdle()
+	status, err := i.waitIdle()
 	if err != nil {
 		return err
 	}
@@ -332,16 +341,21 @@ func (i *I2C) SetAttribute(command Command, value []uint16) error {
 }
 
 func (i *I2C) RunCommand(command Command) error {
-	if _, err := i.WaitIdle(); err != nil {
+	if atomic.LoadInt32(&i.closed) != 0 {
+		return io.ErrClosedPipe
+	}
+	i.lock.Lock()
+	defer i.lock.Unlock()
+	if _, err := i.waitIdle(); err != nil {
 		return err
 	}
-	if err := i.WriteRegister(RegDataLength, 0); err != nil {
+	if err := i.writeRegister(RegDataLength, 0); err != nil {
 		return err
 	}
-	if err := i.WriteRegister(RegCommandID, uint16(command)|2); err != nil {
+	if err := i.writeRegister(RegCommandID, uint16(command)|2); err != nil {
 		return err
 	}
-	status, err := i.WaitIdle()
+	status, err := i.waitIdle()
 	if err != nil {
 		return err
 	}
@@ -349,46 +363,6 @@ func (i *I2C) RunCommand(command Command) error {
 		return fmt.Errorf("error 0x%x", status>>8)
 	}
 	return nil
-}
-
-func (i *I2C) ReadRegister(addr RegisterAddress) (uint16, error) {
-	data := []uint16{0}
-	err := i.ReadData(addr, data)
-	return data[0], err
-}
-
-func (i *I2C) ReadData(addr RegisterAddress, data []uint16) error {
-	if _, err := i.Write([]byte{byte(addr >> 8), byte(addr & 0xff)}); err != nil {
-		return err
-	}
-	tmp := make([]byte, len(data)*2)
-	if _, err := i.Read(tmp); err != nil {
-		return err
-	}
-	for i := range data {
-		data[i] = uint16(tmp[2*i])<<8 | uint16(tmp[2*i+1])
-	}
-	return nil
-}
-
-func (i *I2C) WriteRegister(addr RegisterAddress, data uint16) error {
-	return i.WriteData(addr, []uint16{data})
-}
-
-func (i *I2C) WriteData(addr RegisterAddress, data []uint16) error {
-	tmp := make([]byte, len(data)*2+2)
-	tmp[0] = byte(addr >> 8)
-	tmp[1] = byte(addr & 0xff)
-	for i, d := range data {
-		tmp[2*i+2] = byte(d >> 8)
-		tmp[2*i+3] = byte(d & 0xff)
-	}
-	_, err := i.Write(tmp)
-	return err
-}
-
-func (i *I2C) setAddress(address byte) error {
-	return i.ioctl(i2cIOCSetAddress, uintptr(address))
 }
 
 // Private details.
@@ -403,9 +377,86 @@ const (
 	i2cIOCSetAddress = 0x0703 // I2C_SLAVE
 )
 
+func (i *I2C) setAddress(address byte) error {
+	return i.ioctl(i2cIOCSetAddress, uintptr(address))
+}
+
+func (i *I2C) read(b []byte) (int, error) {
+	if len(b)&1 != 0 {
+		panic("lepton CCI requires 16 bits aligned read")
+	}
+	n, err := i.f.Read(b)
+	if err == nil && n != len(b) {
+		err = io.ErrShortBuffer
+	}
+	return n, err
+}
+
+func (i *I2C) write(b []byte) (int, error) {
+	if len(b)&1 != 0 {
+		panic("lepton CCI requires 16 bits aligned write")
+	}
+	n, err := i.f.Write(b)
+	return n, err
+}
+
 func (i *I2C) ioctl(op uint, arg uintptr) error {
 	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, i.f.Fd(), uintptr(op), arg); errno != 0 {
 		return fmt.Errorf("i2c ioctl: %s", syscall.Errno(errno))
 	}
 	return nil
+}
+
+// waitIdle waits for camera to be ready.
+func (i *I2C) waitIdle() (uint16, error) {
+	for {
+		value, err := i.readRegister(RegStatus)
+		if err != nil || value&StatusBusyBit == 0 {
+			return value, err
+		}
+		log.Printf("i2c.waitIdle(): device busy %x", value)
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func (i *I2C) readRegister(addr RegisterAddress) (uint16, error) {
+	data := []uint16{0}
+	err := i.readData(addr, data)
+	return data[0], err
+}
+
+func (i *I2C) readData(addr RegisterAddress, data []uint16) error {
+	if atomic.LoadInt32(&i.closed) != 0 {
+		return io.ErrClosedPipe
+	}
+	if _, err := i.write([]byte{byte(addr >> 8), byte(addr & 0xff)}); err != nil {
+		return err
+	}
+	tmp := make([]byte, len(data)*2)
+	if _, err := i.read(tmp); err != nil {
+		return err
+	}
+	for i := range data {
+		data[i] = uint16(tmp[2*i])<<8 | uint16(tmp[2*i+1])
+	}
+	return nil
+}
+
+func (i *I2C) writeRegister(addr RegisterAddress, data uint16) error {
+	return i.writeData(addr, []uint16{data})
+}
+
+func (i *I2C) writeData(addr RegisterAddress, data []uint16) error {
+	if atomic.LoadInt32(&i.closed) != 0 {
+		return io.ErrClosedPipe
+	}
+	tmp := make([]byte, len(data)*2+2)
+	tmp[0] = byte(addr >> 8)
+	tmp[1] = byte(addr & 0xff)
+	for i, d := range data {
+		tmp[2*i+2] = byte(d >> 8)
+		tmp[2*i+3] = byte(d & 0xff)
+	}
+	_, err := i.write(tmp)
+	return err
 }

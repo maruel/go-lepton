@@ -136,8 +136,7 @@ func mainImpl() error {
 	go func() {
 		for {
 			// Keep this loop busy to not lose sync on SPI.
-			b := &lepton.LeptonBuffer{}
-			l.ReadImg(b)
+			b := l.ReadImg()
 			c <- b
 			if d != nil {
 				d <- b

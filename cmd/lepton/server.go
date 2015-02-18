@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"image"
 	"image/png"
 	"log"
 	"net/http"
@@ -55,7 +54,9 @@ var rootTmpl = template.Must(template.New("name").Parse(`
 	<body>
 		Still:<br>
 		<a href="/still/rgb/latest.png"><img class="large" id="still" src="/still/rgb/latest.png" onload="reload()"></img></a>
+		<img src="/still/rgb/palette/v.png" width="60px" height="256px" border=1></img>
 		<br>
+		TODO(maruel): Add JS updated stats.
 		<canvas id="canvas1" width="500" height="500"></canvas>
 	</body>
 	</html>`))
@@ -79,10 +80,14 @@ func StartWebServer(port int) *WebServer {
 	mux := mux.NewRouter()
 	mux.HandleFunc("/", w.root)
 	mux.HandleFunc("/favicon.ico", w.stillGrayLatestPNG)
-	mux.HandleFunc("/still/gray/{id:[0-9]+}.png", w.stillGrayPNG)
+	mux.HandleFunc("/still/gray/diff.png", w.stillGrayDiffPNG)
 	mux.HandleFunc("/still/gray/latest.png", w.stillGrayLatestPNG)
-	mux.HandleFunc("/still/rgb/{id:[0-9]+}.png", w.stillRGBPNG)
+	mux.HandleFunc("/still/gray/palette/{orientation:[hv]}.png", w.stillGrayPalettePNG)
+	mux.HandleFunc("/still/gray/{id:[0-9]+}.png", w.stillGrayPNG)
+	mux.HandleFunc("/still/rgb/diff.png", w.stillRGBDiffPNG)
 	mux.HandleFunc("/still/rgb/latest.png", w.stillRGBLatestPNG)
+	mux.HandleFunc("/still/rgb/palette/{orientation:[hv]}.png", w.stillRGBPalettePNG)
+	mux.HandleFunc("/still/rgb/{id:[0-9]+}.png", w.stillRGBPNG)
 	mux.HandleFunc("/still/{id:[0-9]+}.json", w.stillJSON)
 	mux.HandleFunc("/still/latest.json", w.stillLatestJSON)
 	fmt.Printf("Listening on %d\n", port)
@@ -101,78 +106,88 @@ func (s *WebServer) root(w http.ResponseWriter, r *http.Request) {
 
 func (s *WebServer) stillGrayPNG(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
-	id, err := strconv.Atoi(mux.Vars(r)["id"])
-	if err != nil {
-		panic("internal error")
-	}
-	img := image.NewGray(image.Rect(0, 0, 80, 60))
-	s.getImage(id).AGCGrayLinear(img)
-	if err := png.Encode(w, img); err != nil {
+	if err := png.Encode(w, s.getImage(getID(r)).AGCGrayLinear()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
 func (s *WebServer) stillGrayLatestPNG(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, fmt.Sprintf("/still/gray/%d.png", s.getLatest()), http.StatusFound)
+}
+
+func (s *WebServer) stillGrayDiffPNG(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
-	img := image.NewGray(image.Rect(0, 0, 80, 60))
-	s.getLatestImage().AGCGrayLinear(img)
-	if err := png.Encode(w, img); err != nil {
+	latest := s.getLatest()
+	if err := png.Encode(w, s.getImage(latest).DiffGray(s.getImage(latest-1))); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *WebServer) stillGrayPalettePNG(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "Cache-Control:public, max-age=600")
+	if err := png.Encode(w, lepton.PaletteGray(mux.Vars(r)["orientation"] == "v")); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
 func (s *WebServer) stillRGBPNG(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
-	id, err := strconv.Atoi(mux.Vars(r)["id"])
-	if err != nil {
-		panic("internal error")
-	}
-	img := image.NewNRGBA(image.Rect(0, 0, 80, 60))
-	s.getImage(id).AGCRGBLinear(img)
-	if err := png.Encode(w, img); err != nil {
+	if err := png.Encode(w, s.getImage(getID(r)).AGCRGBLinear()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
 func (s *WebServer) stillRGBLatestPNG(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, fmt.Sprintf("/still/rgb/%d.png", s.getLatest()), http.StatusFound)
+}
+
+func (s *WebServer) stillRGBDiffPNG(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
-	img := image.NewNRGBA(image.Rect(0, 0, 80, 60))
-	s.getLatestImage().AGCRGBLinear(img)
-	if err := png.Encode(w, img); err != nil {
+	latest := s.getLatest()
+	if err := png.Encode(w, s.getImage(latest).DiffRGB(s.getImage(latest-1))); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *WebServer) stillRGBPalettePNG(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "Cache-Control:public, max-age=600")
+	if err := png.Encode(w, lepton.PaletteRGB(mux.Vars(r)["orientation"] == "v")); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
 func (s *WebServer) stillJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	id, err := strconv.Atoi(mux.Vars(r)["id"])
-	if err != nil {
-		panic("internal error")
-	}
-	if err := json.NewEncoder(w).Encode(s.getImage(id)); err != nil {
+	if err := json.NewEncoder(w).Encode(s.getImage(getID(r))); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
 func (s *WebServer) stillLatestJSON(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
-	if err := json.NewEncoder(w).Encode(s.getLatestImage()); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	http.Redirect(w, r, fmt.Sprintf("/still/%d.json", s.getLatest()), http.StatusFound)
 }
 
 // Private details.
 
-func (s *WebServer) getLatestImage() *lepton.LeptonBuffer {
+func getID(r *http.Request) int {
+	id, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil {
+		panic("internal error")
+	}
+	return id
+}
+
+func (s *WebServer) getLatest() int {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.lastIndex == -1 {
-		return &lepton.LeptonBuffer{}
+		return 0
 	}
-	return s.images[s.lastIndex]
+	return int(s.images[s.lastIndex].FrameCount)
 }
 
 func (s *WebServer) getImage(id int) *lepton.LeptonBuffer {

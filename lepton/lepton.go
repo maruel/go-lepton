@@ -242,10 +242,10 @@ func (l *Lepton) Stats() Stats {
 }
 
 // ReadImg reads an image into an image. It must be 80x60.
-func (l *Lepton) ReadImg(r *LeptonBuffer) {
+func (l *Lepton) ReadImg() *LeptonBuffer {
 	l.currentLine = -1
 	l.previousImg = l.currentImg
-	l.currentImg = r
+	l.currentImg = &LeptonBuffer{}
 	for {
 		// TODO(maruel): Fail after N errors?
 		// TODO(maruel): Skip 2 frames since they'll be the same data so no need
@@ -263,6 +263,7 @@ func (l *Lepton) ReadImg(r *LeptonBuffer) {
 		l.stats.DuplicateFrames++
 		l.currentLine = -1
 	}
+	return l.currentImg
 }
 
 // Private details.
