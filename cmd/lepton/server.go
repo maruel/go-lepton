@@ -132,7 +132,7 @@ func (s *WebServer) stillRGBPNG(w http.ResponseWriter, r *http.Request) {
 		panic("internal error")
 	}
 	img := image.NewNRGBA(image.Rect(0, 0, 80, 60))
-	s.getImage(id).PseudoColor(img)
+	s.getImage(id).AGCRGBLinear(img)
 	if err := png.Encode(w, img); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -142,7 +142,7 @@ func (s *WebServer) stillRGBLatestPNG(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	img := image.NewNRGBA(image.Rect(0, 0, 80, 60))
-	s.getLatestImage().PseudoColor(img)
+	s.getLatestImage().AGCRGBLinear(img)
 	if err := png.Encode(w, img); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
