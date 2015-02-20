@@ -7,6 +7,7 @@
 package lepton
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -148,6 +149,48 @@ func (s *SPI) Close() error {
 	return err
 }
 
+func (s *SPI) Reset() error {
+	if atomic.LoadInt32(&s.closed) != 0 {
+		return io.ErrClosedPipe
+	}
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	log.Printf("SPI.Reset()")
+	// If out of sync, Deassert /CS and idle SCK for at least 5 frame periods
+	// (>185ms).
+	/*
+		s.f.Close()
+		time.Sleep(200 * time.Millisecond)
+		tmp, err := MakeSPI(s.path, s.speed)
+		if err != nil {
+			return err
+		}
+		s.f = tmp.f
+		return err
+	*/
+	time.Sleep(200 * time.Millisecond)
+	return nil
+}
+
+// Read converts the 16bits big endian words into litte endian on the fly. Will
+// always return an error if the whole buffer wasn't read.
+// TODO(maruel): Well, swap is TODO.
+func (s *SPI) Read(b []byte) (int, error) {
+	if atomic.LoadInt32(&s.closed) != 0 {
+		return 0, io.ErrClosedPipe
+	}
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	n, err := s.f.Read(b)
+	// TODO(maruel): uint16Swap(b[:n])
+	if err == nil && n != len(b) {
+		err = io.ErrShortBuffer
+	}
+	return n, err
+}
+
+// Private details.
+
 func (s *SPI) setFlag(op uint, arg uint64) error {
 	if atomic.LoadInt32(&s.closed) != 0 {
 		return io.ErrClosedPipe
@@ -166,15 +209,6 @@ func (s *SPI) setFlag(op uint, arg uint64) error {
 		return fmt.Errorf("spi op 0x%x: set 0x%x, read 0x%x", op, arg, actual)
 	}
 	return nil
-}
-
-func (s *SPI) Read(b []byte) (int, error) {
-	if atomic.LoadInt32(&s.closed) != 0 {
-		return 0, io.ErrClosedPipe
-	}
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	return s.f.Read(b)
 }
 
 func (s *SPI) ioctl(op uint, arg unsafe.Pointer) error {
@@ -457,4 +491,24 @@ func (i *I2C) writeData(addr RegisterAddress, data []uint16) error {
 	}
 	_, err := i.write(tmp)
 	return err
+}
+
+// putUint16 encodes as little endian.
+func putUint16(v uint16) []byte {
+	p := make([]byte, 2)
+	binary.LittleEndian.PutUint16(p, v)
+	return p
+}
+
+// Swaps little endian byte stream as big endian 16bit words. This is so fucked
+// up, someone at FLIR is smoking crack.
+func uint16Swap(p []byte) {
+	if len(p)&1 != 0 {
+		panic("bad length")
+	}
+	for i := 0; i < len(p)/2; i++ {
+		j := 2 * i
+		k := j + 1
+		p[j], p[k] = p[k], p[j]
+	}
 }
