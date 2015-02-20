@@ -188,7 +188,8 @@ func (s *SPI) ioctl(op uint, arg unsafe.Pointer) error {
 
 // I2C is the Lepton specific Command and Control Interface (CCI).
 //
-// It's big endian.
+// It's essentially little endian encoded stream over big endian 16 bits words.
+// #thanksobama.
 type I2C struct {
 	closed int32
 	lock   sync.Mutex
@@ -224,7 +225,7 @@ func MakeI2C() (*I2C, error) {
 		return nil, err
 	}
 	i := &I2C{f: f}
-	if err := i.setAddress(i2cAddress); err != nil {
+	if err := i.ioctl(i2cIOCSetAddress, uintptr(i2cAddress)); err != nil {
 		f.Close()
 		return nil, err
 	}
@@ -240,6 +241,7 @@ func MakeI2C() (*I2C, error) {
 			break
 		}
 		log.Printf("i2c: lepton not yet booted: 0x%02x", status)
+		time.Sleep(5 * time.Millisecond)
 	}
 	return i, nil
 }
@@ -376,10 +378,6 @@ const (
 	i2cAddress       = 0x2A
 	i2cIOCSetAddress = 0x0703 // I2C_SLAVE
 )
-
-func (i *I2C) setAddress(address byte) error {
-	return i.ioctl(i2cIOCSetAddress, uintptr(address))
-}
 
 func (i *I2C) read(b []byte) (int, error) {
 	if len(b)&1 != 0 {
