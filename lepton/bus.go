@@ -49,7 +49,7 @@ const (
 	SysRoiSceneSelect         Command = 0x0230 // 4   GET/SET
 	SysThermalShutdownCount   Command = 0x0234 // 1   GET     Number of times it exceeded 80C
 	SysShutterPosition        Command = 0x0238 // 2   GET/SET
-	SysFFCMode                Command = 0x023C // 20  GET/SET Manual control
+	SysFFCMode                Command = 0x023C // 17  GET/SET Manual control; doc says 20 words but it's 17 in practice.
 	SysFCCRunNormalization    Command = 0x0240 // 0   RUN
 	SysFCCStatus              Command = 0x0244 // 2   GET
 	VidColorLookupSelect      Command = 0x0304 // 2   GET/SET
@@ -295,18 +295,20 @@ func (i *I2C) Close() error {
 }
 
 func (i *I2C) GetAttribute(command Command, result []uint16) error {
-	if len(result) > 1024 {
+	nbWords := len(result)
+	if nbWords > 1024 {
 		return errors.New("buffer too large")
 	}
 	if atomic.LoadInt32(&i.closed) != 0 {
 		return io.ErrClosedPipe
 	}
+
 	i.lock.Lock()
 	defer i.lock.Unlock()
 	if _, err := i.waitIdle(); err != nil {
 		return err
 	}
-	if err := i.writeRegister(RegDataLength, uint16(len(result))); err != nil {
+	if err := i.writeRegister(RegDataLength, uint16(nbWords)); err != nil {
 		return err
 	}
 	if err := i.writeRegister(RegCommandID, uint16(command)); err != nil {
@@ -319,7 +321,7 @@ func (i *I2C) GetAttribute(command Command, result []uint16) error {
 	if status&0xff00 != 0 {
 		return fmt.Errorf("error 0x%x", status>>8)
 	}
-	if len(result) <= 16 {
+	if nbWords <= 16 {
 		err = i.readData(RegData0, result)
 	} else {
 		err = i.readData(RegDataBuffer0, result)
@@ -340,19 +342,21 @@ func (i *I2C) GetAttribute(command Command, result []uint16) error {
 }
 
 func (i *I2C) SetAttribute(command Command, value []uint16) error {
-	if len(value) > 1024 {
+	nbWords := len(value)
+	if nbWords > 1024 {
 		return errors.New("buffer too large")
 	}
 	if atomic.LoadInt32(&i.closed) != 0 {
 		return io.ErrClosedPipe
 	}
+
 	i.lock.Lock()
 	defer i.lock.Unlock()
 	if _, err := i.waitIdle(); err != nil {
 		return err
 	}
 	var err error
-	if len(value) <= 16 {
+	if nbWords <= 16 {
 		err = i.writeData(RegData0, value)
 	} else {
 		err = i.writeData(RegDataBuffer0, value)
@@ -360,7 +364,7 @@ func (i *I2C) SetAttribute(command Command, value []uint16) error {
 	if err != nil {
 		return err
 	}
-	if err := i.writeRegister(RegDataLength, uint16(len(value))); err != nil {
+	if err := i.writeRegister(RegDataLength, uint16(nbWords)); err != nil {
 		return err
 	}
 	if err := i.writeRegister(RegCommandID, uint16(command)|1); err != nil {

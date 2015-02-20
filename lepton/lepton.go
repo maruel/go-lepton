@@ -191,14 +191,16 @@ type FFCMode struct {
 // the breakout board doesn't expose the PWR_DWN_L and RESET_L lines so it is
 // impossible to shut down the Lepton.
 type Lepton struct {
-	spi         *SPI
-	i2c         *I2C
-	currentImg  *LeptonBuffer
-	previousImg *LeptonBuffer
-	currentLine int
-	packet      [164]uint8 // one line is sent as a SPI packet.
-	stats       Stats
-	serial      uint64
+	spi               *SPI
+	i2c               *I2C
+	currentImg        *LeptonBuffer
+	previousImg       *LeptonBuffer
+	currentLine       int
+	packet            [164]uint8 // one line is sent as a SPI packet.
+	stats             Stats
+	serial            uint64
+	telemetry         Flag
+	telemetryLocation TelemetryLocation
 }
 
 func MakeLepton(path string, speed int) (*Lepton, error) {
@@ -241,7 +243,7 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 	}
 
 	// Send a ping to ensure the device is working.
-	out := &Lepton{spi: spi, i2c: i2c, currentLine: -1}
+	out := &Lepton{spi: spi, i2c: i2c, currentLine: -1, telemetry: Disabled, telemetryLocation: Header}
 	status, err := out.GetStatus()
 	if err != nil {
 		return nil, err
@@ -263,6 +265,19 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 	spi = nil
 	i2c = nil
 	return out, nil
+}
+
+func (l *Lepton) Close() error {
+	var err error
+	if l.spi != nil {
+		err = l.spi.Close()
+		l.spi = nil
+	}
+	if l.i2c != nil {
+		err = l.i2c.Close()
+		l.i2c = nil
+	}
+	return err
 }
 
 func (l *Lepton) GetStatus() (*Status, error) {
@@ -320,24 +335,11 @@ func (l *Lepton) GetTemperature() (CentiC, error) {
 	return CentiK(p[0]).ToC(), nil
 }
 
-func (l *Lepton) Close() error {
-	var err error
-	if l.spi != nil {
-		err = l.spi.Close()
-		l.spi = nil
-	}
-	if l.i2c != nil {
-		err = l.i2c.Close()
-		l.i2c = nil
-	}
-	return err
-}
-
 // TriggerFFC forces a Flat-Field Correction to be done by the camera for
 // recalibration. It takes 23 frames and the camera runs at 27fps so it lasts
 // less than a second.
 func (l *Lepton) TriggerFFC() error {
-	return nil
+	return l.i2c.RunCommand(SysFCCRunNormalization)
 }
 
 func (l *Lepton) Stats() Stats {
@@ -345,7 +347,8 @@ func (l *Lepton) Stats() Stats {
 	return l.stats
 }
 
-// ReadImg reads an image into an image. It must be 80x60.
+// ReadImg reads an image. It is fine to call other functions concurrently to
+// send commands to the camera.
 func (l *Lepton) ReadImg() *LeptonBuffer {
 	l.currentLine = -1
 	l.previousImg = l.currentImg
@@ -372,6 +375,35 @@ func (l *Lepton) ReadImg() *LeptonBuffer {
 
 // Private details.
 
+// maxLine returns the last valid VoSPI line.
+func (l *Lepton) maxLine() int {
+	if l.telemetry != Disabled {
+		return 59 + 3
+	}
+	return 59
+}
+
+// realLine returns the image or telemetry line.
+func (l *Lepton) realLine(line int) (imgLine int, telemetryLine int) {
+	if l.telemetry == Disabled {
+		return line, -1
+	}
+	switch l.telemetryLocation {
+	case Header:
+		if line < 3 {
+			return -1, line
+		}
+		return line - 3, -1
+	case Footer:
+		if line > 59 {
+			return -1, line - 60
+		}
+		return line, -1
+	default:
+		panic("internal error")
+	}
+}
+
 // readLine reads one line at a time.
 //
 // Each line is sent as a packet over SPI. The packet size is constant. See
@@ -391,7 +423,8 @@ func (l *Lepton) readLine() {
 			log.Printf("I/O fail: %s", err)
 			l.stats.LastFail = err
 		}
-		time.Sleep(200 * time.Millisecond)
+		l.stats.Resets++
+		l.spi.Reset()
 		return
 	}
 
@@ -435,7 +468,8 @@ func (l *Lepton) readLine() {
 			copy(l.currentImg.Pix[off:off+80], l.previousImg.Pix[off:off+80])
 		} else {
 			log.Printf("expected line %d, got %d  %v", l.currentLine+1, line, l.packet)
-			time.Sleep(200 * time.Millisecond)
+			l.stats.Resets++
+			l.spi.Reset()
 			l.currentLine = -1
 			return
 		}
