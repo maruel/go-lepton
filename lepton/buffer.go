@@ -11,41 +11,6 @@ import (
 	"time"
 )
 
-// CentiK is temperature in 0.01°K
-type CentiK uint16
-
-func (c CentiK) String() string {
-	return fmt.Sprintf("%01d.%02d°K", c/100, c%100)
-}
-
-func (c CentiK) ToC() CentiC {
-	return CentiC(int(c) - 27315)
-}
-
-// CentiC is temperature in 0.01°C. Use 32 bits because otherwise the limit
-// would be 327°C, which is a tad too low.
-type CentiC int32
-
-func (c CentiC) String() string {
-	return fmt.Sprintf("%01d.%02d°C", c/100, c%100)
-}
-
-func (c CentiC) ToK() CentiK {
-	return CentiK(int(c) + 27315)
-}
-
-// FFCState describes the Flat-Field Correction state.
-type FFCState uint8
-
-const (
-	// No FFC was requested.
-	FFCNever FFCState = 0
-	// FFC is in progress. It lasts 23 frames (at 27fps) so it lasts less than a second.
-	FFCInProgress FFCState = 1
-	// FFC was completed successfully.
-	FFCComplete FFCState = 2
-)
-
 type Metadata struct {
 	Raw                   [160]uint8 // (To remove)
 	DeviceSerial          [16]uint8

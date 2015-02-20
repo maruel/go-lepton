@@ -44,7 +44,7 @@
 package lepton
 
 // "stringer" can be installed with "go get golang.org/x/tools/cmd/stringer"
-//go:generate stringer -output=strings_gen.go -type=CameraStatus,Command,FFCState,RegisterAddress
+//go:generate stringer -output=strings_gen.go -type=CameraStatus,Command,FFCShutterMode,FFCState,Flag,RegisterAddress,ShutterTempLockoutState,TelemetryLocation
 
 import (
 	"bytes"
@@ -55,9 +55,10 @@ import (
 	"time"
 )
 
+// CameraStatus is retrieved via Lepton.GetStatus().
 type CameraStatus uint32
 
-// Valid values for Status.
+// Valid values for CameraStatus.
 const (
 	SystemReady              CameraStatus = 0
 	SystemInitializing       CameraStatus = 1
@@ -66,8 +67,86 @@ const (
 	SystemFlatFieldInProcess CameraStatus = 4
 )
 
+// FFCShutterMode is used in FFCMode.
+type FFCShutterMode uint32
+
+// Valid values for FFCShutterMode.
+const (
+	FFCShutterModeManual   FFCShutterMode = 0
+	FFCShutterModeAuto     FFCShutterMode = 1
+	FFCShutterModeExternal FFCShutterMode = 2
+)
+
+// ShutterTempLockoutState is used in FFCMode.
+type ShutterTempLockoutState uint32
+
+// Valid values for ShutterTempLockoutState.
+const (
+	ShutterTempLockoutStateInactive ShutterTempLockoutState = 0
+	ShutterTempLockoutStateHigh     ShutterTempLockoutState = 1
+	ShutterTempLockoutStateLow      ShutterTempLockoutState = 2
+)
+
+// Flag is used in FFCMode.
+type Flag uint32
+
+// Valid values for Flag.
+const (
+	Disabled Flag = 0
+	Enabled  Flag = 1
+)
+
+// TelemetryLocation is used with SysTelemetryLocation.
+type TelemetryLocation uint32
+
+// Valid values for TelemetryLocation.
+const (
+	Header TelemetryLocation = 0
+	Footer TelemetryLocation = 1
+)
+
+// CentiK is temperature in 0.01°K
+type CentiK uint16
+
+func (c CentiK) String() string {
+	return fmt.Sprintf("%01d.%02d°K", c/100, c%100)
+}
+
+func (c CentiK) ToC() CentiC {
+	return CentiC(int(c) - 27315)
+}
+
+// CentiC is temperature in 0.01°C. Use 32 bits because otherwise the limit
+// would be 327°C, which is a tad too low.
+type CentiC int32
+
+func (c CentiC) String() string {
+	d := c % 100
+	if d < 0 {
+		d = -d
+	}
+	return fmt.Sprintf("%01d.%02d°C", c/100, d)
+}
+
+func (c CentiC) ToK() CentiK {
+	return CentiK(int(c) + 27315)
+}
+
+// FFCState describes the Flat-Field Correction state.
+type FFCState uint8
+
+const (
+	// No FFC was requested.
+	FFCNever FFCState = 0
+	// FFC is in progress. It lasts 23 frames (at 27fps) so it lasts less than a second.
+	FFCInProgress FFCState = 1
+	// FFC was completed successfully.
+	FFCComplete FFCState = 2
+)
+
 type Stats struct {
 	LastFail        error
+	Resets          int
 	GoodFrames      int
 	DuplicateFrames int
 	TransferFails   int
@@ -75,6 +154,37 @@ type Stats struct {
 	BrokenLines     int
 	DiscardLines    int
 	BadSyncLines    int
+}
+
+// Status is returned by Lepton.GetStatus().
+type Status struct {
+	CameraStatus CameraStatus
+	CommandCount uint16
+	Reserved     uint16
+}
+
+// DurationMS is duration in millisecond
+type DurationMS uint32
+
+func (d DurationMS) ToDuration() time.Duration {
+	return time.Duration(d) * time.Millisecond
+}
+
+// FFCMode is returned by Lepton.GetFFCModeControl().
+type FFCMode struct {
+	FFCShutterMode          FFCShutterMode          // Default: FFCShutterModeExternal
+	ShutterTempLockoutState ShutterTempLockoutState // Default: ShutterTempLockoutStateInactive
+	VideoFreezeDuringFFC    Flag                    // Default: Enabled
+	FFCDesired              Flag                    // Default: Disabled
+	ElapsedTimeSinceLastFFC DurationMS              // Uptime in ms.
+	DesiredFFCPeriod        DurationMS              // Default: 300000
+	ExplicitCommandToOpen   Flag                    // Default: Disabled
+	DesiredFFCTempDelta     CentiK                  // Default: 300
+	ImminentDelay           uint16                  // Default: 52
+
+	// These are documented at page 51 but not listed in the structure.
+	// ClosePeriodInFrames uint16 // Default: 4
+	// OpenPeriodInFrames  uint16 // Default: 1
 }
 
 // Lepton controls a FLIR Lepton. It assumes a specific breakout board. Sadly
@@ -153,12 +263,6 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 	spi = nil
 	i2c = nil
 	return out, nil
-}
-
-type Status struct {
-	CameraStatus CameraStatus
-	CommandCount uint16
-	Reserved     uint16
 }
 
 func (l *Lepton) GetStatus() (*Status, error) {
