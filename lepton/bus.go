@@ -98,8 +98,14 @@ const (
 	StatusErrorMask     = 0xFF00
 )
 
+// SPI is the Lepton specific VoSPI interface.
+//
+// It's essentially little endian encoded stream over big endian 16 bits words.
+// #thanksobama.
 type SPI struct {
 	closed int32
+	path   string
+	speed  int
 	lock   sync.Mutex
 	f      *os.File
 }
@@ -112,15 +118,18 @@ func MakeSPI(path string, speed int) (*SPI, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &SPI{f: f}
-	if err := s.SetFlag(spiIOCMode, 3); err != nil {
-		return s, err
+	s := &SPI{path: path, speed: speed, f: f}
+	if err := s.setFlag(spiIOCMode, 3); err != nil {
+		s.Close()
+		return nil, err
 	}
-	if err := s.SetFlag(spiIOCBitsPerWord, 8); err != nil {
-		return s, err
+	if err := s.setFlag(spiIOCBitsPerWord, 8); err != nil {
+		s.Close()
+		return nil, err
 	}
-	if err := s.SetFlag(spiIOCMaxSpeedHz, uint64(speed)); err != nil {
-		return s, err
+	if err := s.setFlag(spiIOCMaxSpeedHz, uint64(speed)); err != nil {
+		s.Close()
+		return nil, err
 	}
 	return s, nil
 }
@@ -139,16 +148,7 @@ func (s *SPI) Close() error {
 	return err
 }
 
-func (s *SPI) GetFlag(op uint, arg *uint64) error {
-	if atomic.LoadInt32(&s.closed) != 0 {
-		return io.ErrClosedPipe
-	}
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	return s.ioctl(op|0x80000000, unsafe.Pointer(arg))
-}
-
-func (s *SPI) SetFlag(op uint, arg uint64) error {
+func (s *SPI) setFlag(op uint, arg uint64) error {
 	if atomic.LoadInt32(&s.closed) != 0 {
 		return io.ErrClosedPipe
 	}
@@ -158,7 +158,7 @@ func (s *SPI) SetFlag(op uint, arg uint64) error {
 		return err
 	}
 	actual := uint64(0)
-	// GetFlag() without lock.
+	// getFlag() equivalent.
 	if err := s.ioctl(op|0x80000000, unsafe.Pointer(&actual)); err != nil {
 		return err
 	}
