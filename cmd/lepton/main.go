@@ -34,7 +34,7 @@ var application = &subcommands.DefaultApplication{
 
 func printStats(l *lepton.Lepton, s *Seeder, noCR bool) {
 	started := time.Now()
-	format := "\rframes: %d good %d duped; lines: %d good %d discard %d badsync %d broken; %d fail; %d HTTP %d Imgs %.1fs"
+	format := "\rframes: %d good %d duped; lines: %d good %d discard %d badsync %d broken; %d fail %d resets; %d HTTP %d Imgs %.1fs"
 	if noCR {
 		format = format[1:] + "\n"
 	}
@@ -49,7 +49,7 @@ func printStats(l *lepton.Lepton, s *Seeder, noCR bool) {
 			format,
 			leptonStats.GoodFrames, leptonStats.DuplicateFrames,
 			leptonStats.GoodLines, leptonStats.DiscardLines, leptonStats.BadSyncLines,
-			leptonStats.BrokenLines, leptonStats.TransferFails,
+			leptonStats.BrokenLines, leptonStats.TransferFails, leptonStats.Resets,
 			seederStats.HTTPReqs, seederStats.ImgsSent,
 			duration.Seconds())
 		if noCR {
@@ -103,19 +103,20 @@ func mainImpl() error {
 	}
 
 	if status, err := l.GetStatus(); err == nil {
-		fmt.Printf("State: %s\n", status.CameraStatus)
+		fmt.Printf("Status.CameraStatus: %s\n", status.CameraStatus)
+		fmt.Printf("Status.CommandCount: %d\n", status.CommandCount)
 	}
 	if serial, err := l.GetSerial(); err == nil {
-		fmt.Printf("Serial: 0x%x\n", serial)
+		fmt.Printf("Serial:              0x%x\n", serial)
 	}
 	if uptime, err := l.GetUptime(); err == nil {
-		fmt.Printf("Uptime: %.2fs\n", uptime.Seconds())
+		fmt.Printf("Uptime:              %s\n", uptime)
 	}
 	if temp, err := l.GetTemperature(); err == nil {
-		fmt.Printf("Temperature: %s\n", temp)
+		fmt.Printf("Temperature:         %s\n", temp)
 	}
 	if temp, err := l.GetTemperatureHousing(); err == nil {
-		fmt.Printf("Temperature: %s (housing)\n", temp)
+		fmt.Printf("Temperature housing: %s\n", temp)
 	}
 	if *query {
 		return nil
