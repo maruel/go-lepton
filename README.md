@@ -132,11 +132,24 @@ Verification
 
 Running the following command should have the corresponding output:
 
-    $ lepton -nopush -query
-    Lepton serial: 0x12345
-    Lepton uptime: 15368.12s
-    Lepton temp: 302.48K
-    Lepton temp: 298.08K (housing)
+    $ lepton -query
+    Status.CameraStatus: SystemReady
+    Status.CommandCount: 0
+    Serial:              0x12345
+    Uptime:              48m56.275s
+    Temperature:         30.75°C
+    Temperature housing: 26.34°C
+    Telemetry:           Enabled
+    TelemetryLocation:   Header
+    FCCMode.FFCShutterMode:          FFCShutterModeExternal
+    FCCMode.ShutterTempLockoutState: ShutterTempLockoutStateInactive
+    FCCMode.VideoFreezeDuringFFC:    Enabled
+    FCCMode.FFCDesired:              Enabled
+    FCCMode.ElapsedTimeSinceLastFFC: 48m56.285s
+    FCCMode.DesiredFFCPeriod:        5m0s
+    FCCMode.ExplicitCommandToOpen:   Disabled
+    FCCMode.DesiredFFCTempDelta:     3.00°K
+    FCCMode.ImminentDelay:           52
 
 
 Performance
