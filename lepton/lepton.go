@@ -428,7 +428,10 @@ func (l *Lepton) readLine() {
 	}
 
 	l.stats.LastFail = nil
-	if (l.packet[0] & 0xf) == 0x0f {
+	headerLine := int(binary.BigEndian.Uint16(l.packet[:2])) & packetHeaderMask
+	// TODO(maruel): Verify CRC:
+	// crc := binary.BigEndian.Uint16(l.packet[2:4])
+	if (headerLine & packetHeaderDiscard) == packetHeaderDiscard {
 		// Discard packet. This happens as the bandwidth of SPI is larger than data
 		// rate.
 		//l.lastLine = -1
@@ -436,37 +439,38 @@ func (l *Lepton) readLine() {
 		return
 	}
 
-	// If out of sync, Deassert /CS and idle SCK for at least 5 frame periods
-	// (>185ms).
-
-	// TODO(maruel): Verify CRC (bytes 2-3) ?
-	line := int(l.packet[1])
-	if line >= 63 {
-		log.Printf("got unexpected line %d  %v", line, l.packet)
-		time.Sleep(200 * time.Millisecond)
+	if headerLine > l.maxLine() {
+		log.Printf("got unexpected line %d  %v", headerLine, l.packet)
+		l.stats.Resets++
+		l.spi.Reset()
 		l.stats.BrokenLines++
 		l.lastLine = -1
 		return
 	}
-	if line != l.lastLine+1 {
+
+	imgLine, telemetryLine := l.realLine(headerLine)
+	if headerLine != l.lastLine+1 {
 		l.stats.BadSyncLines++
-		if line == l.lastLine {
-			log.Printf("duplicate line %d", line)
+		if headerLine == l.lastLine {
+			// That's bad and shouldn't (?) happen.
+			log.Printf("duplicate line %d\n  %v", headerLine, l.packet[:8])
 			return
 		}
-		if line == 0 {
+		if headerLine == 0 {
 			// A new frame was started, ignore the previous one.
 			log.Printf("reset")
 			l.lastLine = -1
-		} else if line == l.lastLine+2 && line >= 3 && l.previousImg != nil {
-			// Skipped a line. It may happen and just copy over the previous image.
-			// Do not copy over the telemetry line.
-			log.Printf("skipped line %d (copying from previous buffer)", line)
-			l.lastLine++
-			off := line * 80
-			copy(l.currentImg.Pix[off:off+80], l.previousImg.Pix[off:off+80])
+			/*
+				} else if headerLine == l.lastLine+2 && headerLine >= 3 && l.previousImg != nil {
+					// Skipped a line. It may happen and just copy over the previous image.
+					// Do not copy over the telemetry line.
+					log.Printf("skipped line %d (copying from previous buffer)", headerLine)
+					l.lastLine++
+					off := headerLine * 80
+					copy(l.currentImg.Pix[off:off+80], l.previousImg.Pix[off:off+80])
+			*/
 		} else {
-			log.Printf("expected line %d, got %d  %v", l.lastLine+1, line, l.packet)
+			log.Printf("expected line %d, got %d\n  %v", l.lastLine+1, headerLine, l.packet[:8])
 			l.stats.Resets++
 			l.spi.Reset()
 			l.lastLine = -1
@@ -478,14 +482,20 @@ func (l *Lepton) readLine() {
 	//log.Printf("line: %d", l.lastLine)
 	// Convert the line from byte to uint16. 14 bits significant.
 	l.stats.GoodLines++
-	if 3 <= line && line < 63 {
-		line -= 3
-		// Don't forget the 2 uint16 header (ID + CRC).
+	if imgLine != -1 {
+		// Skip 2 uint16 header (ID + CRC). Line number is offset by 3.
+		// Can't use this due to type difference:
+		//   copy(l.currentImg.Pix[(imgLine-3)*80:], l.packet[4:])
+		// I think that the following would be slower, needs to be tested:
+		//   binary.Read(bytes.NewBuffer(l.packet[4:]), binary.BigEndian, l.currentImg.Pix[base:])
+		base := imgLine * 80
 		for x := 0; x < 80; x++ {
-			l.currentImg.Pix[line*80+x] = uint16(l.packet[2*x+4])<<8 | uint16(l.packet[2*x+5])
+			l.currentImg.Pix[base+x] = binary.BigEndian.Uint16(l.packet[2*x+4:])
 		}
-	} else if line == 0 {
-		l.parseTelemetry(line)
+	} else if telemetryLine != -1 {
+		l.parseTelemetry(telemetryLine)
+	} else {
+		panic("internal error")
 	}
 }
 
@@ -502,7 +512,8 @@ func (l *Lepton) parseTelemetry(line int) {
 	}
 	// Telemetry line.
 	copy(l.currentImg.Raw[:], l.packet[4:])
-	if err := binary.Read(bytes.NewBuffer(l.currentImg.Raw[:]), binary.BigEndian, &l.currentImg.Telemetry); err != nil {
+	uint16Swap(l.currentImg.Raw[:])
+	if err := binary.Read(bytes.NewBuffer(l.currentImg.Raw[:]), binary.LittleEndian, &l.currentImg.Telemetry); err != nil {
 		fmt.Printf("\nFAILURE: %s\n", err)
 	}
 	rowA := &l.currentImg.Telemetry
