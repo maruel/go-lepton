@@ -191,6 +191,13 @@ func (s *SPI) Read(b []byte) (int, error) {
 
 // Private details.
 
+// spidev driver IOCTL control codes.
+const (
+	spiIOCMode        = 0x16B01
+	spiIOCBitsPerWord = 0x16B03
+	spiIOCMaxSpeedHz  = 0x46B04
+)
+
 func (s *SPI) setFlag(op uint, arg uint64) error {
 	if atomic.LoadInt32(&s.closed) != 0 {
 		return io.ErrClosedPipe
@@ -259,7 +266,7 @@ func MakeI2C() (*I2C, error) {
 		return nil, err
 	}
 	i := &I2C{f: f}
-	if err := i.ioctl(i2cIOCSetAddress, uintptr(i2cAddress)); err != nil {
+	if err := i.ioctl(i2cIOCSetAddress, uintptr(i2cLeptonAddress)); err != nil {
 		f.Close()
 		return nil, err
 	}
@@ -407,14 +414,9 @@ func (i *I2C) RunCommand(command Command) error {
 
 // Private details.
 
-// Drivers IOCTL control codes.
 const (
-	spiIOCMode        = 0x16B01
-	spiIOCBitsPerWord = 0x16B03
-	spiIOCMaxSpeedHz  = 0x46B04
-
-	i2cAddress       = 0x2A
-	i2cIOCSetAddress = 0x0703 // I2C_SLAVE
+	i2cLeptonAddress = 0x2A   // Hardcoded value for the Lepton.
+	i2cIOCSetAddress = 0x0703 // i2c-dev IOCTL control code I2C_SLAVE
 )
 
 func (i *I2C) read(b []byte) (int, error) {
