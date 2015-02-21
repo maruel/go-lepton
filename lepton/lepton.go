@@ -195,7 +195,7 @@ type Lepton struct {
 	i2c               *I2C
 	currentImg        *LeptonBuffer
 	previousImg       *LeptonBuffer
-	currentLine       int
+	lastLine          int
 	packet            [164]uint8 // one line is sent as a SPI packet.
 	stats             Stats
 	serial            uint64
@@ -243,7 +243,7 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 	}
 
 	// Send a ping to ensure the device is working.
-	out := &Lepton{spi: spi, i2c: i2c, currentLine: -1, telemetry: Disabled, telemetryLocation: Header}
+	out := &Lepton{spi: spi, i2c: i2c, lastLine: -1, telemetry: Disabled, telemetryLocation: Header}
 	status, err := out.GetStatus()
 	if err != nil {
 		return nil, err
@@ -350,7 +350,7 @@ func (l *Lepton) Stats() Stats {
 // ReadImg reads an image. It is fine to call other functions concurrently to
 // send commands to the camera.
 func (l *Lepton) ReadImg() *LeptonBuffer {
-	l.currentLine = -1
+	l.lastLine = -1
 	l.previousImg = l.currentImg
 	l.currentImg = &LeptonBuffer{}
 	for {
@@ -358,7 +358,7 @@ func (l *Lepton) ReadImg() *LeptonBuffer {
 		// TODO(maruel): Skip 2 frames since they'll be the same data so no need
 		// for the check below.
 		// Do not forget the 3 telemetry lines.
-		for l.currentLine != 62 {
+		for l.lastLine != 62 {
 			l.readLine()
 		}
 		if l.previousImg == nil || !l.previousImg.Equal(l.currentImg) {
@@ -368,7 +368,7 @@ func (l *Lepton) ReadImg() *LeptonBuffer {
 		}
 		// It also happen if the image is 100% static without noise.
 		l.stats.DuplicateFrames++
-		l.currentLine = -1
+		l.lastLine = -1
 	}
 	return l.currentImg
 }
@@ -418,7 +418,7 @@ func (l *Lepton) readLine() {
 	}
 	if err != nil {
 		l.stats.TransferFails++
-		l.currentLine = -1
+		l.lastLine = -1
 		if l.stats.LastFail == nil {
 			log.Printf("I/O fail: %s", err)
 			l.stats.LastFail = err
@@ -432,7 +432,7 @@ func (l *Lepton) readLine() {
 	if (l.packet[0] & 0xf) == 0x0f {
 		// Discard packet. This happens as the bandwidth of SPI is larger than data
 		// rate.
-		//l.currentLine = -1
+		//l.lastLine = -1
 		l.stats.DiscardLines++
 		return
 	}
@@ -446,37 +446,37 @@ func (l *Lepton) readLine() {
 		log.Printf("got unexpected line %d  %v", line, l.packet)
 		time.Sleep(200 * time.Millisecond)
 		l.stats.BrokenLines++
-		l.currentLine = -1
+		l.lastLine = -1
 		return
 	}
-	if line != l.currentLine+1 {
+	if line != l.lastLine+1 {
 		l.stats.BadSyncLines++
-		if line == l.currentLine {
+		if line == l.lastLine {
 			log.Printf("duplicate line %d", line)
 			return
 		}
 		if line == 0 {
 			// A new frame was started, ignore the previous one.
 			log.Printf("reset")
-			l.currentLine = -1
-		} else if line == l.currentLine+2 && line >= 3 && l.previousImg != nil {
+			l.lastLine = -1
+		} else if line == l.lastLine+2 && line >= 3 && l.previousImg != nil {
 			// Skipped a line. It may happen and just copy over the previous image.
 			// Do not copy over the telemetry line.
 			log.Printf("skipped line %d (copying from previous buffer)", line)
-			l.currentLine++
+			l.lastLine++
 			off := line * 80
 			copy(l.currentImg.Pix[off:off+80], l.previousImg.Pix[off:off+80])
 		} else {
-			log.Printf("expected line %d, got %d  %v", l.currentLine+1, line, l.packet)
+			log.Printf("expected line %d, got %d  %v", l.lastLine+1, line, l.packet)
 			l.stats.Resets++
 			l.spi.Reset()
-			l.currentLine = -1
+			l.lastLine = -1
 			return
 		}
 	}
 
-	l.currentLine++
-	//log.Printf("line: %d", l.currentLine)
+	l.lastLine++
+	//log.Printf("line: %d", l.lastLine)
 	// Convert the line from byte to uint16. 14 bits significant.
 	l.stats.GoodLines++
 	if 3 <= line && line < 63 {
@@ -486,61 +486,75 @@ func (l *Lepton) readLine() {
 			l.currentImg.Pix[line*80+x] = uint16(l.packet[2*x+4])<<8 | uint16(l.packet[2*x+5])
 		}
 	} else if line == 0 {
-		// Telemetry line.
-		copy(l.currentImg.Raw[:], l.packet[4:])
-		if err := binary.Read(bytes.NewBuffer(l.currentImg.Raw[:]), binary.BigEndian, &l.currentImg.Telemetry); err != nil {
-			fmt.Printf("\nFAILURE: %s\n", err)
-		}
-		rowA := &l.currentImg.Telemetry
-		i := l.currentImg
-		i.Revision = rowA.TelemetryRevision
-		//i.SinceStartup = time.Duration(rowA.TimeCounter) * time.Millisecond
-		//copy(i.DeviceSerial[:], rowA.ModuleSerial[:])
-		//i.DeviceVersion = rowA.SoftwareRevision
-		//i.FrameCount = rowA.FrameCounter
-		i.Mean = rowA.FrameMean
-		i.RawTemperature = rowA.FPATempCounts
-		i.Temperature = rowA.FPATemp.ToC()
-		i.RawTemperatureHousing = rowA.HousingTempCounts
-		i.TemperatureHousing = rowA.HousingTemp.ToC()
-		i.FFCTemperature = rowA.FPATempLastFFC.ToC()
-		i.FFCSince = time.Duration(rowA.TimeCounterLastFFC) * time.Millisecond
-		i.FFCTemperatureHousing = rowA.HousingTempLastFFC.ToC()
-		i.FFCLog2 = rowA.Log2FFCFrames
-		//if rowA.StatusBits&statusMask != 0 {
-		//	fmt.Printf("\nMask: 0x%X Status: 0x%X\n", statusMask, rowA.StatusBits)
-		//}
-		//i.FFCDesired = rowA.StatusBits&statusFFCDesired != 0
-		//i.AGCEnabled = rowA.StatusBits&statusAGCState != 0
-		//i.Overtemp = rowA.StatusBits&statusOvertemp != 0
-		// i.FFCState
-		/*
-			fccstate := (status & (1<<(31-5) + 1<<(31-4))) >> (31 - 4)
-			if l.currentImg.Revision == 8 {
-				switch fccstate {
-				case 0:
-					i.FFCState = FFCNever
-				case 1:
-					i.FFCState = FFCInProgress
-				case 2:
-					i.FFCState = FFCComplete
-				default:
-					panic(fmt.Errorf("unexpected fccstate %d; %v", fccstate, l.packet))
-				}
-			} else {
-				switch fccstate {
-				case 0:
-					i.FFCState = FFCNever
-				case 2:
-					i.FFCState = FFCInProgress
-				case 3:
-					i.FFCState = FFCComplete
-				default:
-					//fmt.Fprintf(os.Stderr, "unexpected fccstate %d; %v", fccstate, l.packet)
-				}
-			}
-		*/
+		l.parseTelemetry(line)
 	}
+}
+
+func (l *Lepton) parseTelemetry(line int) {
+	if line > 0 {
+		for i := 4; i < len(l.packet); i++ {
+			if l.packet[i] != 0 {
+				//log.Printf("got unexpected telemetry line %d  %v", headerLine, l.packet)
+				l.stats.BrokenLines++
+				break
+			}
+		}
+		return
+	}
+	// Telemetry line.
+	copy(l.currentImg.Raw[:], l.packet[4:])
+	if err := binary.Read(bytes.NewBuffer(l.currentImg.Raw[:]), binary.BigEndian, &l.currentImg.Telemetry); err != nil {
+		fmt.Printf("\nFAILURE: %s\n", err)
+	}
+	rowA := &l.currentImg.Telemetry
+	i := l.currentImg
+	i.Revision = rowA.TelemetryRevision
+	//i.SinceStartup = time.Duration(rowA.TimeCounter) * time.Millisecond
+	//copy(i.DeviceSerial[:], rowA.ModuleSerial[:])
+	//i.DeviceVersion = rowA.SoftwareRevision
+	//i.FrameCount = rowA.FrameCounter
+	i.Mean = rowA.FrameMean
+	i.RawTemperature = rowA.FPATempCounts
+	i.Temperature = rowA.FPATemp.ToC()
+	i.RawTemperatureHousing = rowA.HousingTempCounts
+	i.TemperatureHousing = rowA.HousingTemp.ToC()
+	i.FFCTemperature = rowA.FPATempLastFFC.ToC()
+	i.FFCSince = time.Duration(rowA.TimeCounterLastFFC) * time.Millisecond
+	i.FFCTemperatureHousing = rowA.HousingTempLastFFC.ToC()
+	i.FFCLog2 = rowA.Log2FFCFrames
+	//if rowA.StatusBits&statusMask != 0 {
+	//	fmt.Printf("\nMask: 0x%X Status: 0x%X\n", statusMask, rowA.StatusBits)
+	//}
+	//i.FFCDesired = rowA.StatusBits&statusFFCDesired != 0
+	//i.AGCEnabled = rowA.StatusBits&statusAGCState != 0
+	//i.Overtemp = rowA.StatusBits&statusOvertemp != 0
+	// i.FFCState
+	/*
+		fccstate := (status & (1<<(31-5) + 1<<(31-4))) >> (31 - 4)
+		if l.currentImg.Revision == 8 {
+			switch fccstate {
+			case 0:
+				i.FFCState = FFCNever
+			case 1:
+				i.FFCState = FFCInProgress
+			case 2:
+				i.FFCState = FFCComplete
+			default:
+				panic(fmt.Errorf("unexpected fccstate %d; %v", fccstate, l.packet))
+			}
+		} else {
+			switch fccstate {
+			case 0:
+				i.FFCState = FFCNever
+			case 2:
+				i.FFCState = FFCInProgress
+			case 3:
+				i.FFCState = FFCComplete
+			default:
+				//fmt.Fprintf(os.Stderr, "unexpected fccstate %d; %v", fccstate, l.packet)
+			}
+		}
+	*/
 }
 
 // As documented at p.19-20.
