@@ -47,7 +47,7 @@ var rootTmpl = template.Must(template.New("name").Parse(`
 				drawing.onload = function() {
 					context.drawImage(drawing, 0, 0);
 				};
-				drawing.src = "/still/rgb/latest.png";
+				drawing.src = "/still/rgb/latest.png#" + new Date().getTime();
 			}
 		</script>
 	</head>
@@ -140,7 +140,13 @@ func (s *WebServer) stillRGBPNG(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *WebServer) stillRGBLatestPNG(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, fmt.Sprintf("/still/rgb/%d.png", s.getLatest()), http.StatusFound)
+	//http.Redirect(w, r, fmt.Sprintf("/still/rgb/%d.png", s.getLatest()), http.StatusFound)
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+	id := s.getLatest()
+	if err := png.Encode(w, s.getImage(id).AGCRGBLinear()); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func (s *WebServer) stillRGBDiffPNG(w http.ResponseWriter, r *http.Request) {
@@ -184,6 +190,7 @@ func getID(r *http.Request) int {
 func (s *WebServer) getLatest() int {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+	//return s.lastIndex
 	if s.lastIndex == -1 {
 		return 0
 	}
@@ -191,9 +198,13 @@ func (s *WebServer) getLatest() int {
 }
 
 func (s *WebServer) getImage(id int) *lepton.LeptonBuffer {
+	if s.lastIndex == -1 {
+		return &lepton.LeptonBuffer{}
+	}
 	id32 := uint32(id)
 	s.lock.Lock()
 	defer s.lock.Unlock()
+	//return s.images[s.lastIndex]
 	for _, img := range s.images {
 		if img.FrameCount == id32 {
 			return img
