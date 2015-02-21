@@ -547,72 +547,72 @@ func (l *Lepton) readLine() {
 // '*' means the value observed in practice make sense.
 // Value after '-' is observed value.
 type TelemetryRowA struct {
-	TelemetryRevision  uint16    // 0 *
-	TimeCounter        uint32    // 1 Looks invalid - 49,34,0,148 - 86,48,0,164, doesn't make sense
-	StatusBits         uint32    // 3 Bit field. Looks invalid - 8,8,0,0
-	ModuleSerial       [16]uint8 // 5 Is empty (!)
-	SoftwareRevision   uint64    // 13 Seems to be little endian - 229402106072596480
-	Reserved17         uint16    // 17 - 1101
-	Reserved18         uint16    // 18
-	Reserved19         uint16    // 19
-	FrameCounter       uint32    // 20
-	FrameMean          uint16    // 22 * Maybe it's FrameCounter?
-	FPATempCounts      uint16    // 23
-	FPATemp            CentiK    // 24 *
-	HousingTempCounts  uint16    // 25
-	HousingTemp        CentiK    // 27 *
-	Reserved27         uint16    // 27
-	Reserved28         uint16    // 28
-	FPATempLastFFC     CentiK    // 29
-	TimeCounterLastFFC uint32    // 30
-	HousingTempLastFFC CentiK    // 32
-	Reserved33         uint16    // 33
-	AGCROILeft         uint16    // 35 * - 0 (Likely inversed, haven't confirmed)
-	AGCROITop          uint16    // 34 * - 0
-	AGCROIRight        uint16    // 36 * - 79 - SDK was wrong!
-	AGCROIBottom       uint16    // 37 * - 59 - SDK was wrong!
-	AGCClipLimitHigh   uint16    // 38 *
-	AGCClipLimitLow    uint16    // 39 *
-	Reserved40         uint16    // 40 - 1
-	Reserved41         uint16    // 41 - 128
-	Reserved42         uint16    // 42 - 64
-	Reserved43         uint16    // 43
-	Reserved44         uint16    // 44
-	Reserved45         uint16    // 45
-	Reserved46         uint16    // 46
-	Reserved47         uint16    // 47 - 1
-	Reserved48         uint16    // 48 - 128
-	Reserved49         uint16    // 49 - 1
-	Reserved50         uint16    // 50
-	Reserved51         uint16    // 51
-	Reserved52         uint16    // 52
-	Reserved53         uint16    // 53
-	Reserved54         uint16    // 54
-	Reserved55         uint16    // 55
-	Reserved56         uint16    // 56 - 30
-	Reserved57         uint16    // 57
-	Reserved58         uint16    // 58 - 1
-	Reserved59         uint16    // 59 - 1
-	Reserved60         uint16    // 60 - 78
-	Reserved61         uint16    // 61 - 58
-	Reserved62         uint16    // 62 - 7
-	Reserved63         uint16    // 63 - 90
-	Reserved64         uint16    // 64 - 40
-	Reserved65         uint16    // 65 - 210
-	Reserved66         uint16    // 66 - 255
-	Reserved67         uint16    // 67 - 255
-	Reserved68         uint16    // 68 - 23
-	Reserved69         uint16    // 69 - 6
-	Reserved70         uint16    // 70
-	Reserved71         uint16    // 71
-	Reserved72         uint16    // 72 - 7
-	Reserved73         uint16    // 73
-	Log2FFCFrames      uint16    // 74 Found 3, should be 27?
-	Reserved75         uint16    // 75
-	Reserved76         uint16    // 76
-	Reserved77         uint16    // 77
-	Reserved78         uint16    // 78
-	Reserved79         uint16    // 79
+	TelemetryRevision  uint16     // 0 *
+	TimeCounter        DurationMS // 1 Looks invalid - 49,34,0,148 - 86,48,0,164, doesn't make sense
+	StatusBits         uint32     // 3 Bit field. Looks invalid - 8,8,0,0
+	ModuleSerial       [16]uint8  // 5 Is empty (!)
+	SoftwareRevision   uint64     // 13 Seems to be little endian - 229402106072596480
+	Reserved17         uint16     // 17 - 1101
+	Reserved18         uint16     // 18
+	Reserved19         uint16     // 19
+	FrameCounter       uint32     // 20
+	FrameMean          uint16     // 22 * Maybe it's FrameCounter?
+	FPATempCounts      uint16     // 23
+	FPATemp            CentiK     // 24 *
+	HousingTempCounts  uint16     // 25
+	HousingTemp        CentiK     // 27 *
+	Reserved27         uint16     // 27
+	Reserved28         uint16     // 28
+	FPATempLastFFC     CentiK     // 29
+	TimeCounterLastFFC uint32     // 30
+	HousingTempLastFFC CentiK     // 32
+	Reserved33         uint16     // 33
+	AGCROILeft         uint16     // 35 * - 0 (Likely inversed, haven't confirmed)
+	AGCROITop          uint16     // 34 * - 0
+	AGCROIRight        uint16     // 36 * - 79 - SDK was wrong!
+	AGCROIBottom       uint16     // 37 * - 59 - SDK was wrong!
+	AGCClipLimitHigh   uint16     // 38 *
+	AGCClipLimitLow    uint16     // 39 *
+	Reserved40         uint16     // 40 - 1
+	Reserved41         uint16     // 41 - 128
+	Reserved42         uint16     // 42 - 64
+	Reserved43         uint16     // 43
+	Reserved44         uint16     // 44
+	Reserved45         uint16     // 45
+	Reserved46         uint16     // 46
+	Reserved47         uint16     // 47 - 1
+	Reserved48         uint16     // 48 - 128
+	Reserved49         uint16     // 49 - 1
+	Reserved50         uint16     // 50
+	Reserved51         uint16     // 51
+	Reserved52         uint16     // 52
+	Reserved53         uint16     // 53
+	Reserved54         uint16     // 54
+	Reserved55         uint16     // 55
+	Reserved56         uint16     // 56 - 30
+	Reserved57         uint16     // 57
+	Reserved58         uint16     // 58 - 1
+	Reserved59         uint16     // 59 - 1
+	Reserved60         uint16     // 60 - 78
+	Reserved61         uint16     // 61 - 58
+	Reserved62         uint16     // 62 - 7
+	Reserved63         uint16     // 63 - 90
+	Reserved64         uint16     // 64 - 40
+	Reserved65         uint16     // 65 - 210
+	Reserved66         uint16     // 66 - 255
+	Reserved67         uint16     // 67 - 255
+	Reserved68         uint16     // 68 - 23
+	Reserved69         uint16     // 69 - 6
+	Reserved70         uint16     // 70
+	Reserved71         uint16     // 71
+	Reserved72         uint16     // 72 - 7
+	Reserved73         uint16     // 73
+	Log2FFCFrames      uint16     // 74 Found 3, should be 27?
+	Reserved75         uint16     // 75
+	Reserved76         uint16     // 76
+	Reserved77         uint16     // 77
+	Reserved78         uint16     // 78
+	Reserved79         uint16     // 79
 }
 
 // As documented as page.21
