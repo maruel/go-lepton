@@ -172,9 +172,12 @@ func (s *SPI) Reset() error {
 	return nil
 }
 
-// Read converts the 16bits big endian words into litte endian on the fly. Will
-// always return an error if the whole buffer wasn't read.
-// TODO(maruel): Well, swap is TODO.
+// Read returns the data as 16bits big endian words as described in VoSPI
+// protocol. Always return an error if the whole buffer wasn't read.
+//
+// The reason it doesn't return as little endian is to save on CPU processing
+// as the vast majority of lines are 'discard' lines that are not processed in
+// any way.
 func (s *SPI) Read(b []byte) (int, error) {
 	if atomic.LoadInt32(&s.closed) != 0 {
 		return 0, io.ErrClosedPipe
@@ -182,7 +185,6 @@ func (s *SPI) Read(b []byte) (int, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	n, err := s.f.Read(b)
-	// TODO(maruel): uint16Swap(b[:n])
 	if err == nil && n != len(b) {
 		err = io.ErrShortBuffer
 	}

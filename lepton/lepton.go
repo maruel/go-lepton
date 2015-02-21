@@ -195,7 +195,7 @@ type Lepton struct {
 	i2c               *I2C
 	currentImg        *LeptonBuffer
 	previousImg       *LeptonBuffer
-	lastLine          int
+	lastLine          int        // Last valid line number, or -1 if no valid line was yet received.
 	packet            [164]uint8 // one line is sent as a SPI packet.
 	stats             Stats
 	serial            uint64
@@ -243,7 +243,7 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 	}
 
 	// Send a ping to ensure the device is working.
-	out := &Lepton{spi: spi, i2c: i2c, lastLine: -1, telemetry: Disabled, telemetryLocation: Header}
+	out := &Lepton{spi: spi, i2c: i2c, lastLine: -1, telemetry: Enabled, telemetryLocation: Header}
 	status, err := out.GetStatus()
 	if err != nil {
 		return nil, err
@@ -357,8 +357,7 @@ func (l *Lepton) ReadImg() *LeptonBuffer {
 		// TODO(maruel): Fail after N errors?
 		// TODO(maruel): Skip 2 frames since they'll be the same data so no need
 		// for the check below.
-		// Do not forget the 3 telemetry lines.
-		for l.lastLine != 62 {
+		for l.lastLine != l.maxLine() {
 			l.readLine()
 		}
 		if l.previousImg == nil || !l.previousImg.Equal(l.currentImg) {
@@ -375,7 +374,7 @@ func (l *Lepton) ReadImg() *LeptonBuffer {
 
 // Private details.
 
-// maxLine returns the last valid VoSPI line.
+// maxLine returns the last valid VoSPI line. Returns 59 or 62.
 func (l *Lepton) maxLine() int {
 	if l.telemetry != Disabled {
 		return 59 + 3
@@ -631,9 +630,11 @@ type TelemetryRowA struct {
 
 // As documented as page.21
 const (
-	statusFFCDesired uint32 = 1 << (31 - 3)
-	statusFFCState   uint32 = 1<<(31-4) | 1<<(31-5)
-	statusAGCState   uint32 = 1 << (31 - 12)
-	statusOvertemp   uint32 = 1 << (31 - 20)
-	statusMask              = ^(statusFFCDesired | statusFFCState | statusAGCState | statusOvertemp)
+	packetHeaderDiscard        = 0x0F00
+	packetHeaderMask           = 0x0FFF
+	statusFFCDesired    uint32 = 1 << (31 - 3)
+	statusFFCState      uint32 = 1<<(31-4) | 1<<(31-5)
+	statusAGCState      uint32 = 1 << (31 - 12)
+	statusOvertemp      uint32 = 1 << (31 - 20)
+	statusMask                 = ^(statusFFCDesired | statusFFCState | statusAGCState | statusOvertemp)
 )
