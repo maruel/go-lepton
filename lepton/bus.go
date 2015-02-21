@@ -7,12 +7,14 @@
 package lepton
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -303,8 +305,9 @@ func (i *I2C) Close() error {
 	return err
 }
 
-func (i *I2C) GetAttribute(command Command, result []uint16) error {
-	nbWords := len(result)
+func (i *I2C) GetAttribute(command Command, data interface{}) error {
+	log.Printf("GetAttribute(%s, %s)", command, reflect.TypeOf(data).String())
+	nbWords := binary.Size(data) / 2
 	if nbWords > 1024 {
 		return errors.New("buffer too large")
 	}
@@ -330,28 +333,39 @@ func (i *I2C) GetAttribute(command Command, result []uint16) error {
 	if status&0xff00 != 0 {
 		return fmt.Errorf("error 0x%x", status>>8)
 	}
+	b := make([]byte, nbWords*2)
 	if nbWords <= 16 {
-		err = i.readData(RegData0, result)
+		err = i.readData(RegData0, b)
 	} else {
-		err = i.readData(RegDataBuffer0, result)
+		err = i.readData(RegDataBuffer0, b)
 	}
 	if err != nil {
 		return err
 	}
+	if err := binary.Read(bytes.NewBuffer(b), binary.LittleEndian, data); err != nil {
+		return err
+	}
+	log.Printf("GetAttribute(%s, %s) = %#v", command, reflect.TypeOf(data).String(), data)
 	/* TODO(maruel): Verify CRC:
 	crc, err = i.readRegister(RegDataCRC)
 	if err != nil {
 		return err
 	}
-	if expected := CalculateCRC16(result); expected != crc {
+	if expected := CalculateCRC16(data); expected != crc {
 		return errors.New("invalid crc")
 	}
 	*/
 	return nil
 }
 
-func (i *I2C) SetAttribute(command Command, value []uint16) error {
-	nbWords := len(value)
+func (i *I2C) SetAttribute(command Command, data interface{}) error {
+	log.Printf("SetAttribute(%s, %#v)", command, data)
+	buf := &bytes.Buffer{}
+	if err := binary.Write(buf, binary.LittleEndian, data); err != nil {
+		return err
+	}
+	b := buf.Bytes()
+	nbWords := len(b) / 2
 	if nbWords > 1024 {
 		return errors.New("buffer too large")
 	}
@@ -366,9 +380,9 @@ func (i *I2C) SetAttribute(command Command, value []uint16) error {
 	}
 	var err error
 	if nbWords <= 16 {
-		err = i.writeData(RegData0, value)
+		err = i.writeData(RegData0, b)
 	} else {
-		err = i.writeData(RegDataBuffer0, value)
+		err = i.writeData(RegDataBuffer0, b)
 	}
 	if err != nil {
 		return err
@@ -421,22 +435,31 @@ const (
 	i2cIOCSetAddress = 0x0703 // i2c-dev IOCTL control code I2C_SLAVE
 )
 
+// read converts the 16bits big endian words into litte endian on the fly. Will
+// always return an error if the whole buffer wasn't read.
 func (i *I2C) read(b []byte) (int, error) {
 	if len(b)&1 != 0 {
 		panic("lepton CCI requires 16 bits aligned read")
 	}
 	n, err := i.f.Read(b)
+	uint16Swap(b[:n])
 	if err == nil && n != len(b) {
 		err = io.ErrShortBuffer
 	}
 	return n, err
 }
 
+// write takes little endian data and writes it as bid endian 16bit words.
 func (i *I2C) write(b []byte) (int, error) {
 	if len(b)&1 != 0 {
 		panic("lepton CCI requires 16 bits aligned write")
 	}
-	n, err := i.f.Write(b)
+	// Create a temporary slice to conform to io.Writer (even if this function is
+	// not exported).
+	tmp := make([]byte, len(b))
+	copy(tmp, b)
+	uint16Swap(tmp)
+	n, err := i.f.Write(tmp)
 	return n, err
 }
 
@@ -460,43 +483,33 @@ func (i *I2C) waitIdle() (uint16, error) {
 }
 
 func (i *I2C) readRegister(addr RegisterAddress) (uint16, error) {
-	data := []uint16{0}
+	data := []byte{0, 0}
 	err := i.readData(addr, data)
-	return data[0], err
+	return binary.LittleEndian.Uint16(data), err
 }
 
-func (i *I2C) readData(addr RegisterAddress, data []uint16) error {
+func (i *I2C) readData(addr RegisterAddress, data []byte) error {
 	if atomic.LoadInt32(&i.closed) != 0 {
 		return io.ErrClosedPipe
 	}
-	if _, err := i.write([]byte{byte(addr >> 8), byte(addr & 0xff)}); err != nil {
+	if _, err := i.write(putUint16(uint16(addr))); err != nil {
 		return err
 	}
-	tmp := make([]byte, len(data)*2)
-	if _, err := i.read(tmp); err != nil {
-		return err
-	}
-	for i := range data {
-		data[i] = uint16(tmp[2*i])<<8 | uint16(tmp[2*i+1])
-	}
-	return nil
+	_, err := i.read(data)
+	return err
 }
 
 func (i *I2C) writeRegister(addr RegisterAddress, data uint16) error {
-	return i.writeData(addr, []uint16{data})
+	return i.writeData(addr, putUint16(data))
 }
 
-func (i *I2C) writeData(addr RegisterAddress, data []uint16) error {
+func (i *I2C) writeData(addr RegisterAddress, data []byte) error {
 	if atomic.LoadInt32(&i.closed) != 0 {
 		return io.ErrClosedPipe
 	}
-	tmp := make([]byte, len(data)*2+2)
-	tmp[0] = byte(addr >> 8)
-	tmp[1] = byte(addr & 0xff)
-	for i, d := range data {
-		tmp[2*i+2] = byte(d >> 8)
-		tmp[2*i+3] = byte(d & 0xff)
-	}
+	tmp := make([]byte, 0, len(data)+2)
+	tmp = append(tmp, putUint16(uint16(addr))...)
+	tmp = append(tmp, data...)
 	_, err := i.write(tmp)
 	return err
 }

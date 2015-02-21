@@ -254,11 +254,11 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 
 	// Setup telemetry.
 	// Warning: Assumes AGC is disabled. There's no code here to enable it anyway.
-	if err := i2c.SetAttribute(SysTelemetryEnable, []uint16{1, 0}); err != nil {
+	if err := i2c.SetAttribute(SysTelemetryEnable, out.telemetry); err != nil {
 		return nil, err
 	}
 	// I had trouble using it as footer.
-	if err := i2c.SetAttribute(SysTelemetryLocation, []uint16{0, 0}); err != nil {
+	if err := i2c.SetAttribute(SysTelemetryLocation, out.telemetryLocation); err != nil {
 		return nil, err
 	}
 
@@ -281,58 +281,61 @@ func (l *Lepton) Close() error {
 }
 
 func (l *Lepton) GetStatus() (*Status, error) {
-	p := make([]uint16, 4)
-	if err := l.i2c.GetAttribute(SysStatus, p); err != nil {
-		return nil, err
-	}
-	return &Status{
-		CameraStatus: CameraStatus(uint32(p[1])<<16 | uint32(p[0])),
-		CommandCount: p[2],
-		Reserved:     p[3],
-	}, nil
+	out := &Status{}
+	return out, l.i2c.GetAttribute(SysStatus, out)
 }
 
 // GetSerial returns the FLIR Lepton serial number.
 func (l *Lepton) GetSerial() (uint64, error) {
 	if l.serial == 0 {
-		p := make([]uint16, 4)
-		if err := l.i2c.GetAttribute(SysSerialNumber, p); err != nil {
-			return 0, err
+		out := uint64(0)
+		if err := l.i2c.GetAttribute(SysSerialNumber, &out); err != nil {
+			return out, err
 		}
-		log.Printf("serial: 0x%04x %04x %04x %04x", p[0], p[1], p[2], p[3])
-		l.serial = uint64(p[3])<<48 | uint64(p[2])<<32 | uint64(p[1])<<16 | uint64(p[0])
+		l.serial = out
 	}
 	return l.serial, nil
 }
 
 // GetUptime returns the uptime. Rolls over after 1193 hours.
 func (l *Lepton) GetUptime() (time.Duration, error) {
-	p := []uint16{0, 0}
-	if err := l.i2c.GetAttribute(SysUptime, p); err != nil {
-		return 0, err
-	}
-	log.Printf("uptime: 0x%04x %04x", p[0], p[1])
-	return time.Duration(uint32(p[1])<<16|uint32(p[0])) * time.Millisecond, nil
+	var out DurationMS
+	err := l.i2c.GetAttribute(SysUptime, &out)
+	return out.ToDuration(), err
 }
 
 // GetTemperatureHousing returns the temperature in centi-Kelvin.
 func (l *Lepton) GetTemperatureHousing() (CentiC, error) {
-	p := []uint16{0}
-	if err := l.i2c.GetAttribute(SysHousingTemperature, p); err != nil {
-		return 0, err
-	}
-	log.Printf("temp: 0x%04x", p[0])
-	return CentiK(p[0]).ToC(), nil
+	var out CentiK
+	err := l.i2c.GetAttribute(SysHousingTemperature, &out)
+	return out.ToC(), err
 }
 
 // GetTemperature returns the temperature in centi-Kelvin.
 func (l *Lepton) GetTemperature() (CentiC, error) {
-	p := []uint16{0}
-	if err := l.i2c.GetAttribute(SysTemperature, p); err != nil {
-		return 0, err
-	}
-	log.Printf("temp: 0x%04x", p[0])
-	return CentiK(p[0]).ToC(), nil
+	var out CentiK
+	err := l.i2c.GetAttribute(SysTemperature, &out)
+	return out.ToC(), err
+}
+
+// GetFFCModeControl returns a lot of internal data.
+func (l *Lepton) GetFFCModeControl() (*FFCMode, error) {
+	out := &FFCMode{}
+	return out, l.i2c.GetAttribute(SysFFCMode, out)
+}
+
+// GetTelemetryEnable returns if telemetry is enabled.
+func (l *Lepton) GetTelemetryEnable() (Flag, error) {
+	var out Flag
+	err := l.i2c.GetAttribute(SysTelemetryEnable, &out)
+	return out, err
+}
+
+// GetTelemetryLocation returns if telemetry is enabled.
+func (l *Lepton) GetTelemetryLocation() (TelemetryLocation, error) {
+	var out TelemetryLocation
+	err := l.i2c.GetAttribute(SysTelemetryLocation, &out)
+	return out, err
 }
 
 // TriggerFFC forces a Flat-Field Correction to be done by the camera for

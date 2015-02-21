@@ -118,6 +118,23 @@ func mainImpl() error {
 	if temp, err := l.GetTemperatureHousing(); err == nil {
 		fmt.Printf("Temperature housing: %s\n", temp)
 	}
+	if tel, err := l.GetTelemetryEnable(); err == nil {
+		fmt.Printf("Telemetry:           %s\n", tel)
+	}
+	if loc, err := l.GetTelemetryLocation(); err == nil {
+		fmt.Printf("TelemetryLocation:   %s\n", loc)
+	}
+	if mode, err := l.GetFFCModeControl(); err == nil {
+		fmt.Printf("FCCMode.FFCShutterMode:          %s\n", mode.FFCShutterMode)
+		fmt.Printf("FCCMode.ShutterTempLockoutState: %s\n", mode.ShutterTempLockoutState)
+		fmt.Printf("FCCMode.VideoFreezeDuringFFC:    %s\n", mode.VideoFreezeDuringFFC)
+		fmt.Printf("FCCMode.FFCDesired:              %s\n", mode.FFCDesired)
+		fmt.Printf("FCCMode.ElapsedTimeSinceLastFFC: %s\n", mode.ElapsedTimeSinceLastFFC.ToDuration())
+		fmt.Printf("FCCMode.DesiredFFCPeriod:        %s\n", mode.DesiredFFCPeriod.ToDuration())
+		fmt.Printf("FCCMode.ExplicitCommandToOpen:   %s\n", mode.ExplicitCommandToOpen)
+		fmt.Printf("FCCMode.DesiredFFCTempDelta:     %s\n", mode.DesiredFFCTempDelta)
+		fmt.Printf("FCCMode.ImminentDelay:           %d\n", mode.ImminentDelay)
+	}
 	if *query {
 		return nil
 	}
