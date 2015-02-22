@@ -4,6 +4,9 @@
 
 package main
 
+// Packages the static files in a .go file.
+//go:generate go run package/main.go
+
 import (
 	"encoding/json"
 	"fmt"
@@ -18,48 +21,7 @@ import (
 	"github.com/maruel/go-lepton/lepton"
 )
 
-var rootTmpl = template.Must(template.New("name").Parse(`
-	<html>
-	<head>
-		<title>go-lepton</title>
-		<style>
-			img.large {
-				width: 480; /* Multiple of 80 */
-				height: auto;
-			}
-		</style>
-		<script>
-			function reload() {
-				var still = document.getElementById("still");
-				still.src = "/still/rgb/latest.png#" + new Date().getTime();
-			}
-
-			function loadStats() {
-				// Do AJAX stuff.
-				Uint16Array();
-			}
-
-			function tmp() {
-				var can = document.getElementById('canvas1');
-				var context = can.getContext('2d');
-				context.clearRect(0, 0, image.width, image.height);
-				var drawing = new Image();
-				drawing.onload = function() {
-					context.drawImage(drawing, 0, 0);
-				};
-				drawing.src = "/still/rgb/latest.png#" + new Date().getTime();
-			}
-		</script>
-	</head>
-	<body>
-		Still:<br>
-		<a href="/still/rgb/latest.png"><img class="large" id="still" src="/still/rgb/latest.png" onload="reload()"></img></a>
-		<img src="/still/rgb/palette/v.png" width="60px" height="256px" border=1></img>
-		<br>
-		TODO(maruel): Add JS updated stats.
-		<canvas id="canvas1" width="500" height="500"></canvas>
-	</body>
-	</html>`))
+var rootTmpl = template.Must(template.New("name").Parse(staticFiles["root.html"]))
 
 type WebServer struct {
 	lock      sync.Mutex
