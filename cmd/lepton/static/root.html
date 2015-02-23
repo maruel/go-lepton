@@ -5,6 +5,9 @@
     .errorMsg {
       color: red;
     }
+    .info {
+      white-space: pre-wrap;
+    }
     .mainImg {
       border: 1px solid #000000;
     }
@@ -14,20 +17,27 @@
       var can = document.getElementById("canvas1");
       var context = can.getContext("2d");
       var image = document.createElement("img");
+      var errorMsg = document.getElementById("errorMsg");
+      var info = document.getElementById("info");
 
       var socket = new WebSocket(websocketURL("/stream"));
       socket.addEventListener("message", function(event) {
-        // Packets are PNGs.
-        image.src = 'data:image/png;base64,' + event.data;
-        context.drawImage(image, 0, 0, 800, 600);
+        var hdr = event.data[0];
+        var msg = event.data.slice(1);
+        if (hdr == "I") {
+          image.src = 'data:image/png;base64,' + msg;
+          context.drawImage(image, 0, 0, 800, 600);
+        } else if (hdr == "M") {
+          var data = JSON.parse(msg);
+          var str = JSON.stringify(data, null, 2);
+          info.innerText = str;
+        }
       });
       socket.addEventListener("error", function(event) {
-        var d = document.getElementById("errorMsg");
-        d.innerText = "Websocket error" + event;
+        errorMsg.innerText = "Websocket error" + event;
       });
       socket.addEventListener("close", function(event) {
-        var d = document.getElementById("errorMsg");
-        d.innerText = "Websocket closed";
+        errorMsg.innerText = "Websocket closed";
       });
     }
 
@@ -38,7 +48,9 @@
   </script>
 </head>
 <body onload="onload()">
-  <div id="errorMsg" class="errorMsg"></div>
+  <div id="errorMsg" class="errorMsg"></div><br>
   <canvas id="canvas1" class="mainImg" width="800" height="600"></canvas>
+  <br>
+  <div id="info">Infos</div>
 </body>
 </html>

@@ -11,6 +11,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"image/png"
@@ -18,10 +19,8 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"strconv"
 	"sync"
 
-	"github.com/gorilla/mux"
 	"github.com/maruel/go-lepton/lepton"
 	"github.com/maruel/interrupt"
 	"golang.org/x/net/websocket"
@@ -49,7 +48,7 @@ func StartWebServer(port int) *WebServer {
 		cond:      *sync.NewCond(&sync.Mutex{}),
 		lastIndex: -1,
 	}
-	mux := mux.NewRouter()
+	mux := http.NewServeMux()
 	mux.HandleFunc("/", w.root)
 	mux.HandleFunc("/favicon.ico", w.favicon)
 	mux.Handle("/stream", websocket.Handler(w.stream))
@@ -63,6 +62,10 @@ func StartWebServer(port int) *WebServer {
 }
 
 func (s *WebServer) root(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html")
 	s.cond.L.Lock()
 	defer s.cond.L.Unlock()
@@ -88,6 +91,8 @@ func (s *WebServer) stream(w *websocket.Conn) {
 	for !interrupt.IsSet() {
 		s.cond.Wait()
 		for ; !interrupt.IsSet() && lastIndex != s.lastIndex; lastIndex = (lastIndex + 1) % len(s.images) {
+			// Frame I is for Image.
+			buf.Write([]byte("I"))
 			img := s.images[s.lastIndex]
 			s.cond.L.Unlock()
 			// Do the actual I/O without the lock.
@@ -98,6 +103,15 @@ func (s *WebServer) stream(w *websocket.Conn) {
 				_, err = w.Write(buf.Bytes())
 			}
 			buf.Reset()
+			// Frame M is for Metadata.
+			if err == nil {
+				buf.Write([]byte("M"))
+				err = json.NewEncoder(buf).Encode(&img.Telemetry)
+				if err == nil {
+					_, err = w.Write(buf.Bytes())
+				}
+				buf.Reset()
+			}
 
 			s.cond.L.Lock()
 			// To break out of the loop, the lock must be held.
@@ -110,40 +124,6 @@ func (s *WebServer) stream(w *websocket.Conn) {
 }
 
 // Private details.
-
-func getID(r *http.Request) int {
-	id, err := strconv.Atoi(mux.Vars(r)["id"])
-	if err != nil {
-		panic("internal error")
-	}
-	return id
-}
-
-func (s *WebServer) getLatest() int {
-	s.cond.L.Lock()
-	defer s.cond.L.Unlock()
-	return s.lastIndex
-	if s.lastIndex == -1 {
-		return 0
-	}
-	return int(s.images[s.lastIndex].FrameCount)
-}
-
-func (s *WebServer) getImage(id int) *lepton.LeptonBuffer {
-	if s.lastIndex == -1 {
-		return &lepton.LeptonBuffer{}
-	}
-	id32 := uint32(id)
-	s.cond.L.Lock()
-	defer s.cond.L.Unlock()
-	return s.images[s.lastIndex]
-	for _, img := range s.images {
-		if img.FrameCount == id32 {
-			return img
-		}
-	}
-	return &lepton.LeptonBuffer{}
-}
 
 type loggingHandler struct {
 	handler http.Handler
