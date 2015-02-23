@@ -26,6 +26,9 @@ var staticFiles = map[string]string{
 `))
 
 func walk(path string, info os.FileInfo, err error) error {
+	if info.Name()[0] == '.' {
+		return nil
+	}
 	if info.IsDir() {
 		return nil
 	}

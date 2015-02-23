@@ -8,135 +8,105 @@ package main
 //go:generate go run package/main.go
 
 import (
-	"encoding/json"
+	"bufio"
+	"bytes"
+	"encoding/base64"
 	"fmt"
 	"html/template"
 	"image/png"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"sync"
 
 	"github.com/gorilla/mux"
 	"github.com/maruel/go-lepton/lepton"
+	"github.com/maruel/interrupt"
+	"golang.org/x/net/websocket"
 )
 
 var rootTmpl = template.Must(template.New("name").Parse(staticFiles["root.html"]))
 
 type WebServer struct {
-	lock      sync.Mutex
+	cond      sync.Cond
 	state     string
 	images    [9 * 10]*lepton.LeptonBuffer // 10 seconds worth of images. Each image is ~10kb.
 	lastIndex int                          // Index of the most recent image.
 }
 
 func (s *WebServer) AddImg(img *lepton.LeptonBuffer) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.cond.L.Lock()
+	defer s.cond.L.Unlock()
 	s.lastIndex = (s.lastIndex + 1) % len(s.images)
 	s.images[s.lastIndex] = img
+	s.cond.Broadcast()
 }
 
 func StartWebServer(port int) *WebServer {
-	w := &WebServer{lastIndex: -1}
+	w := &WebServer{
+		cond:      *sync.NewCond(&sync.Mutex{}),
+		lastIndex: -1,
+	}
 	mux := mux.NewRouter()
 	mux.HandleFunc("/", w.root)
-	mux.HandleFunc("/favicon.ico", w.stillGrayLatestPNG)
-	mux.HandleFunc("/still/gray/diff.png", w.stillGrayDiffPNG)
-	mux.HandleFunc("/still/gray/latest.png", w.stillGrayLatestPNG)
-	mux.HandleFunc("/still/gray/palette/{orientation:[hv]}.png", w.stillGrayPalettePNG)
-	mux.HandleFunc("/still/gray/{id:[0-9]+}.png", w.stillGrayPNG)
-	mux.HandleFunc("/still/rgb/diff.png", w.stillRGBDiffPNG)
-	mux.HandleFunc("/still/rgb/latest.png", w.stillRGBLatestPNG)
-	mux.HandleFunc("/still/rgb/palette/{orientation:[hv]}.png", w.stillRGBPalettePNG)
-	mux.HandleFunc("/still/rgb/{id:[0-9]+}.png", w.stillRGBPNG)
-	mux.HandleFunc("/still/{id:[0-9]+}.json", w.stillJSON)
-	mux.HandleFunc("/still/latest.json", w.stillLatestJSON)
+	mux.HandleFunc("/favicon.ico", w.favicon)
+	mux.Handle("/stream", websocket.Handler(w.stream))
 	fmt.Printf("Listening on %d\n", port)
 	go http.ListenAndServe(fmt.Sprintf(":%d", port), loggingHandler{mux})
+	go func() {
+		<-interrupt.Channel
+		w.cond.Broadcast()
+	}()
 	return w
 }
 
 func (s *WebServer) root(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
-	s.lock.Lock()
+	s.cond.L.Lock()
+	defer s.cond.L.Unlock()
 	if err := rootTmpl.Execute(w, s); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
-	s.lock.Unlock()
 }
 
-func (s *WebServer) stillGrayPNG(w http.ResponseWriter, r *http.Request) {
+func (s *WebServer) favicon(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
-	if err := png.Encode(w, s.getImage(getID(r)).AGCGrayLinear()); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	w.Header().Set("Cache-Control", "Cache-Control:public, max-age=2592000") // 30d
+	io.WriteString(w, staticFiles["photo_ir.png"])
+}
+
+// stream sends all images as PseudoRGB as WebSocket frames.
+func (s *WebServer) stream(w *websocket.Conn) {
+	log.Printf("websocket from %#v", w)
+	defer w.Close()
+	lastIndex := 0
+	buf := &bytes.Buffer{}
+	s.cond.L.Lock()
+	defer s.cond.L.Unlock()
+	for !interrupt.IsSet() {
+		s.cond.Wait()
+		for ; !interrupt.IsSet() && lastIndex != s.lastIndex; lastIndex = (lastIndex + 1) % len(s.images) {
+			img := s.images[s.lastIndex]
+			s.cond.L.Unlock()
+			// Do the actual I/O without the lock.
+			encoder := base64.NewEncoder(base64.StdEncoding, buf)
+			var err error
+			if err = png.Encode(encoder, img.AGCRGBLinear()); err == nil {
+				encoder.Close()
+				_, err = w.Write(buf.Bytes())
+			}
+			buf.Reset()
+
+			s.cond.L.Lock()
+			// To break out of the loop, the lock must be held.
+			if err != nil {
+				log.Printf("websocket err: %s", err)
+				break
+			}
+		}
 	}
-}
-
-func (s *WebServer) stillGrayLatestPNG(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, fmt.Sprintf("/still/gray/%d.png", s.getLatest()), http.StatusFound)
-}
-
-func (s *WebServer) stillGrayDiffPNG(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
-	latest := s.getLatest()
-	if err := png.Encode(w, s.getImage(latest).DiffGray(s.getImage(latest-1))); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func (s *WebServer) stillGrayPalettePNG(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Cache-Control", "Cache-Control:public, max-age=600")
-	if err := png.Encode(w, lepton.PaletteGray(mux.Vars(r)["orientation"] == "v")); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func (s *WebServer) stillRGBPNG(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "image/png")
-	if err := png.Encode(w, s.getImage(getID(r)).AGCRGBLinear()); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func (s *WebServer) stillRGBLatestPNG(w http.ResponseWriter, r *http.Request) {
-	//http.Redirect(w, r, fmt.Sprintf("/still/rgb/%d.png", s.getLatest()), http.StatusFound)
-	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
-	id := s.getLatest()
-	if err := png.Encode(w, s.getImage(id).AGCRGBLinear()); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func (s *WebServer) stillRGBDiffPNG(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
-	latest := s.getLatest()
-	if err := png.Encode(w, s.getImage(latest).DiffRGB(s.getImage(latest-1))); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func (s *WebServer) stillRGBPalettePNG(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Cache-Control", "Cache-Control:public, max-age=600")
-	if err := png.Encode(w, lepton.PaletteRGB(mux.Vars(r)["orientation"] == "v")); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func (s *WebServer) stillJSON(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(s.getImage(getID(r))); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func (s *WebServer) stillLatestJSON(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, fmt.Sprintf("/still/%d.json", s.getLatest()), http.StatusFound)
 }
 
 // Private details.
@@ -150,9 +120,9 @@ func getID(r *http.Request) int {
 }
 
 func (s *WebServer) getLatest() int {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	//return s.lastIndex
+	s.cond.L.Lock()
+	defer s.cond.L.Unlock()
+	return s.lastIndex
 	if s.lastIndex == -1 {
 		return 0
 	}
@@ -164,9 +134,9 @@ func (s *WebServer) getImage(id int) *lepton.LeptonBuffer {
 		return &lepton.LeptonBuffer{}
 	}
 	id32 := uint32(id)
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	//return s.images[s.lastIndex]
+	s.cond.L.Lock()
+	defer s.cond.L.Unlock()
+	return s.images[s.lastIndex]
 	for _, img := range s.images {
 		if img.FrameCount == id32 {
 			return img
@@ -196,7 +166,13 @@ func (l *loggingResponseWriter) WriteHeader(status int) {
 	l.status = status
 }
 
-// Logs each HTTP request if -verbose is passed.
+// Hijack is needed for websocket.
+func (l *loggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h := l.ResponseWriter.(http.Hijacker)
+	return h.Hijack()
+}
+
+// ServeHTTP logs each HTTP request if -verbose is passed.
 func (l loggingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	lrw := &loggingResponseWriter{ResponseWriter: w}
 	l.handler.ServeHTTP(lrw, r)

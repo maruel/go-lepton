@@ -2,98 +2,43 @@
 <head>
   <title>go-lepton</title>
   <style>
-    img.large {
-      width: 480; /* Multiple of 80 */
-      height: auto;
+    .errorMsg {
+      color: red;
+    }
+    .mainImg {
+      border: 1px solid #000000;
     }
   </style>
   <script>
-    function reload() {
-      var still = document.getElementById("still");
-      still.src = "/still/rgb/latest.png#" + new Date().getTime();
+    function onload() {
+      var can = document.getElementById("canvas1");
+      var context = can.getContext("2d");
+      var image = document.createElement("img");
+
+      var socket = new WebSocket(websocketURL("/stream"));
+      socket.addEventListener("message", function(event) {
+        // Packets are PNGs.
+        image.src = 'data:image/png;base64,' + event.data;
+        context.drawImage(image, 0, 0, 800, 600);
+      });
+      socket.addEventListener("error", function(event) {
+        var d = document.getElementById("errorMsg");
+        d.innerText = "Websocket error" + event;
+      });
+      socket.addEventListener("close", function(event) {
+        var d = document.getElementById("errorMsg");
+        d.innerText = "Websocket closed";
+      });
     }
 
-    function loadStats() {
-      // Do AJAX stuff.
-      Uint16Array();
-      // IE:
-      //   https://msdn.microsoft.com/en-us/library/ie/hh772330.aspx
-      //   var reader = new MSStreamReader();
-      // Chrome:
-      //   WTF?
-
-      getStream("/stream.raw", onData);
-    }
-
-    function onData(data, stats) {
-      var buf = new Uint8Array(data);
-    }
-
-    function readAsync(url, ondata, onerror, oncomplete, onhttpstatus) {
-      // Copyright 2014 Mozilla Foundation
-      // Licensed under the Apache License, Version 2.0
-      // https://developer.mozilla.org/en-US/docs/Web/API/XMLHttpRequest
-      var xhr = new XMLHttpRequest({mozSystem: true});
-      var loaded = 0;
-      var total = 0;
-      xhr.open("GET", url, true);
-      xhr.responseType = 'moz-chunked-arraybuffer';
-      var isNotProgressive = xhr.responseType !== 'moz-chunked-arraybuffer';
-      if (isNotProgressive) {
-        alert('Implement me');
-        //xhr.responseType = 'arraybuffer';
-      }
-      xhr.onprogress = function (e) {
-        if (isNotProgressive) return;
-        loaded = e.loaded;
-        total = e.total;
-        ondata(xhr.response, { loaded: loaded, total: total });
-      };
-      xhr.onreadystatechange = function (event) {
-        if (xhr.readyState === 2 && onhttpstatus) {
-          onhttpstatus(url, xhr.status, xhr.getAllResponseHeaders());
-        }
-        if (xhr.readyState === 4) {
-          // Failed loads can be detected through either the status code or the
-          // fact that nothing has been loaded.
-          // Note: Just checking that 'xhr.response' is set doesn't work, as
-          // Firefox enables chunked loading, and in that mode 'response' is
-          // only set in the 'onprogress' handler.
-          if (xhr.status !== 200 && xhr.status !== 0 || xhr.response === null && (total === 0 || loaded !== total)) {
-            if (onerror) {
-              onerror(xhr.statusText);
-            }
-            return;
-          }
-          if (isNotProgressive) {
-            ondata(new Uint8Array(xhr.response), { loaded: 0, total: xhr.response.byteLength });
-          }
-          if (oncomplete) {
-            oncomplete();
-          }
-        }
-      };
-      xhr.send(null);
-    }
-
-    function tmp() {
-      var can = document.getElementById('canvas1');
-      var context = can.getContext('2d');
-      context.clearRect(0, 0, image.width, image.height);
-      var drawing = new Image();
-      drawing.onload = function() {
-        context.drawImage(drawing, 0, 0);
-      };
-      drawing.src = "/still/rgb/latest.png#" + new Date().getTime();
+    function websocketURL(s) {
+      var l = window.location;
+      return ((l.protocol === "https:") ? "wss://" : "ws://") + l.hostname + ":" + l.port + s;
     }
   </script>
 </head>
-<body>
-  Still:<br>
-  <a href="/still/rgb/latest.png"><img class="large" id="still" src="/still/rgb/latest.png" onload="reload()"></img></a>
-  <img src="/still/rgb/palette/v.png" width="60px" height="256px" border=1></img>
-  <br>
-  TODO(maruel): Add JS updated stats.
-  <canvas id="canvas1" width="500" height="500"></canvas>
+<body onload="onload()">
+  <div id="errorMsg" class="errorMsg"></div>
+  <canvas id="canvas1" class="mainImg" width="800" height="600"></canvas>
 </body>
 </html>

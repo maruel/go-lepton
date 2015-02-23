@@ -4,7 +4,7 @@ go-lepton
 Serves images taken on a FLIR Lepton connected to a Raspberry Pi SPI port to
 over HTTP.
 
-![See how glass blocks IR](https://raw.github.com/maruel/go-lepton/master/static/photo_ir.png)
+![See how glass blocks IR](https://raw.github.com/maruel/go-lepton/master/cmd/lepton/static/photo_ir.png)
 
 
 Prerequisite Setup
