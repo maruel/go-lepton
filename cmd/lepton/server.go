@@ -106,7 +106,9 @@ func (s *WebServer) stream(w *websocket.Conn) {
 			// Frame M is for Metadata.
 			if err == nil {
 				buf.Write([]byte("M"))
-				err = json.NewEncoder(buf).Encode(&img.Telemetry)
+				// Note: time.Duration and CentiC are sent as raw, which is less nice
+				// but easier to process.
+				err = json.NewEncoder(buf).Encode(&img.Metadata)
 				if err == nil {
 					_, err = w.Write(buf.Bytes())
 				}

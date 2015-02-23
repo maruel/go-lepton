@@ -113,23 +113,23 @@ func (c CentiK) String() string {
 }
 
 func (c CentiK) ToC() CentiC {
-	return CentiC(int(c) - 27315)
+	return CentiC(c)
 }
 
-// CentiC is temperature in 0.01°C. Use 32 bits because otherwise the limit
-// would be 327°C, which is a tad too low.
-type CentiC int32
+// CentiC is temperature in 0.01°K but printed as °C.
+type CentiC uint16
 
 func (c CentiC) String() string {
-	d := c % 100
+	v := int(c) - 27315
+	d := v % 100
 	if d < 0 {
 		d = -d
 	}
-	return fmt.Sprintf("%01d.%02d°C", c/100, d)
+	return fmt.Sprintf("%01d.%02d°C", v/100, d)
 }
 
 func (c CentiC) ToK() CentiK {
-	return CentiK(int(c) + 27315)
+	return CentiK(c)
 }
 
 // FFCState describes the Flat-Field Correction state.
@@ -365,7 +365,6 @@ func (l *Lepton) ReadImg() *LeptonBuffer {
 		}
 		if l.previousImg == nil || !l.previousImg.Equal(l.currentImg) {
 			l.stats.GoodFrames++
-			l.currentImg.updateStats()
 			break
 		}
 		// It also happen if the image is 100% static without noise.
@@ -513,77 +512,69 @@ func (l *Lepton) parseTelemetry(line int) {
 		}
 		return
 	}
-	// Telemetry line.
-	copy(l.currentImg.Raw[:], l.packet[4:])
-	uint16Swap(l.currentImg.Raw[:])
-	if err := binary.Read(bytes.NewBuffer(l.currentImg.Raw[:]), binary.LittleEndian, &l.currentImg.Telemetry); err != nil {
+	// Telemetry line. Swap endian here since it's not swapped in SPI.Read().
+	telemetry := l.packet[4:]
+	uint16Swap(telemetry)
+	if err := binary.Read(bytes.NewBuffer(telemetry), binary.LittleEndian, &l.currentImg.Telemetry); err != nil {
 		fmt.Printf("\nFAILURE: %s\n", err)
 	}
 	rowA := &l.currentImg.Telemetry
-	i := l.currentImg
-	i.Revision = rowA.TelemetryRevision
-	//i.SinceStartup = time.Duration(rowA.TimeCounter) * time.Millisecond
-	//copy(i.DeviceSerial[:], rowA.ModuleSerial[:])
-	//i.DeviceVersion = rowA.SoftwareRevision
-	//i.FrameCount = rowA.FrameCounter
-	i.Mean = rowA.FrameMean
-	i.RawTemperature = rowA.FPATempCounts
+	i := &l.currentImg.Metadata
+	i.SinceStartup = rowA.TimeCounter.ToDuration()
+	i.FrameCount = rowA.FrameCounter
+	i.AverageValue = rowA.FrameMean
 	i.Temperature = rowA.FPATemp.ToC()
-	i.RawTemperatureHousing = rowA.HousingTempCounts
 	i.TemperatureHousing = rowA.HousingTemp.ToC()
+	i.RawTemperature = rowA.FPATempCounts
+	i.RawTemperatureHousing = rowA.HousingTempCounts
+	i.FFCSince = rowA.TimeCounterLastFFC.ToDuration()
 	i.FFCTemperature = rowA.FPATempLastFFC.ToC()
-	i.FFCSince = time.Duration(rowA.TimeCounterLastFFC) * time.Millisecond
 	i.FFCTemperatureHousing = rowA.HousingTempLastFFC.ToC()
-	i.FFCLog2 = rowA.Log2FFCFrames
-	//if rowA.StatusBits&statusMask != 0 {
-	//	fmt.Printf("\nMask: 0x%X Status: 0x%X\n", statusMask, rowA.StatusBits)
-	//}
-	//i.FFCDesired = rowA.StatusBits&statusFFCDesired != 0
-	//i.AGCEnabled = rowA.StatusBits&statusAGCState != 0
-	//i.Overtemp = rowA.StatusBits&statusOvertemp != 0
-	// i.FFCState
-	/*
-		fccstate := (status & (1<<(31-5) + 1<<(31-4))) >> (31 - 4)
-		if l.currentImg.Revision == 8 {
-			switch fccstate {
-			case 0:
-				i.FFCState = FFCNever
-			case 1:
-				i.FFCState = FFCInProgress
-			case 2:
-				i.FFCState = FFCComplete
-			default:
-				panic(fmt.Errorf("unexpected fccstate %d; %v", fccstate, l.packet))
-			}
-		} else {
-			switch fccstate {
-			case 0:
-				i.FFCState = FFCNever
-			case 2:
-				i.FFCState = FFCInProgress
-			case 3:
-				i.FFCState = FFCComplete
-			default:
-				//fmt.Fprintf(os.Stderr, "unexpected fccstate %d; %v", fccstate, l.packet)
-			}
+	if rowA.StatusBits&statusMaskNil != 0 {
+		fmt.Printf("\n(Status: 0x%08X) & (Mask: 0x%08X) = (Extra: 0x%08X) in 0x%08X\n", rowA.StatusBits, statusMask, rowA.StatusBits&statusMaskNil, statusMaskNil)
+	}
+	i.FFCDesired = rowA.StatusBits&statusFFCDesired != 0
+	i.Overtemp = rowA.StatusBits&statusOvertemp != 0
+	fccstate := rowA.StatusBits & statusFFCStateMask >> statusFFCStateShift
+	if rowA.TelemetryRevision == 8 {
+		switch fccstate {
+		case 0:
+			i.FFCState = FFCNever
+		case 1:
+			i.FFCState = FFCInProgress
+		case 2:
+			i.FFCState = FFCComplete
+		default:
+			panic(fmt.Errorf("unexpected fccstate %d; %v", fccstate, l.packet))
 		}
-	*/
+	} else {
+		switch fccstate {
+		case 0:
+			i.FFCState = FFCNever
+		case 2:
+			i.FFCState = FFCInProgress
+		case 3:
+			i.FFCState = FFCComplete
+		default:
+			panic(fmt.Errorf("unexpected fccstate %d; %v", fccstate, l.packet))
+		}
+	}
 }
 
 // As documented at p.19-20.
 // '*' means the value observed in practice make sense.
 // Value after '-' is observed value.
 type TelemetryRowA struct {
-	TelemetryRevision  uint16     // 0 *
-	TimeCounter        DurationMS // 1 Looks invalid - 49,34,0,148 - 86,48,0,164, doesn't make sense
-	StatusBits         uint32     // 3 Bit field. Looks invalid - 8,8,0,0
-	ModuleSerial       [16]uint8  // 5 Is empty (!)
-	SoftwareRevision   uint64     // 13 Seems to be little endian - 229402106072596480
+	TelemetryRevision  uint16     // 0  *
+	TimeCounter        DurationMS // 1
+	StatusBits         uint32     // 3  Bit field.
+	ModuleSerial       [16]uint8  // 5  Is empty (!)
+	SoftwareRevision   uint64     // 13
 	Reserved17         uint16     // 17 - 1101
 	Reserved18         uint16     // 18
 	Reserved19         uint16     // 19
 	FrameCounter       uint32     // 20
-	FrameMean          uint16     // 22 * Maybe it's FrameCounter?
+	FrameMean          uint16     // 22 * The average value from the whole frame.
 	FPATempCounts      uint16     // 23
 	FPATemp            CentiK     // 24 *
 	HousingTempCounts  uint16     // 25
@@ -591,7 +582,7 @@ type TelemetryRowA struct {
 	Reserved27         uint16     // 27
 	Reserved28         uint16     // 28
 	FPATempLastFFC     CentiK     // 29
-	TimeCounterLastFFC uint32     // 30
+	TimeCounterLastFFC DurationMS // 30
 	HousingTempLastFFC CentiK     // 32
 	Reserved33         uint16     // 33
 	AGCROILeft         uint16     // 35 * - 0 (Likely inversed, haven't confirmed)
@@ -644,11 +635,24 @@ type TelemetryRowA struct {
 
 // As documented as page.21
 const (
-	packetHeaderDiscard        = 0x0F00
-	packetHeaderMask           = 0x0FFF
-	statusFFCDesired    uint32 = 1 << (31 - 3)
-	statusFFCState      uint32 = 1<<(31-4) | 1<<(31-5)
-	statusAGCState      uint32 = 1 << (31 - 12)
-	statusOvertemp      uint32 = 1 << (31 - 20)
-	statusMask                 = ^(statusFFCDesired | statusFFCState | statusAGCState | statusOvertemp)
+	packetHeaderDiscard = 0x0F00
+	packetHeaderMask    = 0x0FFF
+	// Observed status: 0x00000808, 0x1FFF0000, 0x01AD0000, 0xDCD0FFFF, 0x3FFF0001.
+	statusFFCDesired    uint32 = 1 << 3                                                                                   // 0x00000008
+	statusFFCStateMask  uint32 = 1<<4 | 1<<5                                                                              // 0x00000030
+	statusFFCStateShift uint32 = 4                                                                                        //
+	statusReserved      uint32 = 1 << 11                                                                                  // 0x00000800
+	statusAGCState      uint32 = 1 << 12                                                                                  // 0x00001000
+	statusOvertemp      uint32 = 1 << 20                                                                                  // 0x00100000
+	statusMask                 = statusFFCDesired | statusFFCStateMask | statusAGCState | statusOvertemp | statusReserved // 0x00101838
+	statusMaskNil              = ^statusMask                                                                              // 0xFFEFE7C7
+	/*
+		statusFFCDesired    uint32 = 1 << (31 - 3)                                                           // 0x10000000
+		statusFFCStateMask  uint32 = 1<<(31-4) | 1<<(31-5)                                                   // 0x0C000000
+		statusFFCStateShift uint32 = (31 - 4)                                                                //
+		statusAGCState      uint32 = 1 << (31 - 12)                                                          // 0x00080000
+		statusOvertemp      uint32 = 1 << (31 - 20)                                                          // 0x00000800
+		statusMask                 = statusFFCDesired | statusFFCStateMask | statusAGCState | statusOvertemp // 0x1C080800
+		statusMaskNil              = ^statusMask                                                             // 0xE3F7F7FF
+	*/
 )

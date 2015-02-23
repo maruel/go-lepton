@@ -11,28 +11,21 @@ import (
 	"time"
 )
 
+// Metadata is constructed from TelemetryRowA, which is sent at each frame.
 type Metadata struct {
-	Raw                   [160]uint8 // (To remove)
-	DeviceSerial          [16]uint8
-	DeviceVersion         uint64
-	SinceStartup          time.Duration
+	SinceStartup          time.Duration //
+	FrameCount            uint32        // Number of frames since the start of the camera, in 27fps (not 9fps).
+	AverageValue          uint16        // Average value of the buffer.
+	Temperature           CentiC        //
+	TemperatureHousing    CentiC        //
+	RawTemperature        uint16        //
+	RawTemperatureHousing uint16        //
 	FFCSince              time.Duration // Time since last FFC.
-	FrameCount            uint32
-	Temperature           CentiC
-	TemperatureHousing    CentiC
-	FFCTemperature        CentiC
-	FFCTemperatureHousing CentiC
-	Revision              uint16 // Header revision. (To remove)
-	Mean                  uint16
-	RawTemperature        uint16
-	RawTemperatureHousing uint16
-	FFCLog2               uint16
-	FFCState              FFCState
-	FFCDesired            bool   // Asserted at start-up, after period (default 3m) or after temperature change (default 3°K). Indicates that an FFC should be triggered as soon as possible.
-	AGCEnabled            bool   // true if enabled.
-	Overtemp              bool   // true 10s before self-shutdown.
-	Min                   uint16 // Manually calculated.
-	Max                   uint16
+	FFCTemperature        CentiC        // Temperature at last FFC.
+	FFCTemperatureHousing CentiC        //
+	FFCState              FFCState      // Current FFC state, e.g. if one is happening.
+	FFCDesired            bool          // Asserted at start-up, after period (default 3m) or after temperature change (default 3°K). Indicates that an FFC should be triggered as soon as possible.
+	Overtemp              bool          // true 10s before self-shutdown.
 }
 
 // Image implements image.Image. It is essentially a Gray16 but faster
@@ -41,9 +34,9 @@ type Metadata struct {
 // range is 14 bits, so [0, 16383].
 // Each 1 increment is approximatively 0.025°K.
 type LeptonBuffer struct {
-	Pix [80 * 60]uint16 // 9600 bytes.
-	Metadata
-	Telemetry TelemetryRowA
+	Pix       [80 * 60]uint16 // 9600 bytes.
+	Metadata  Metadata        // Values updated at each frame.
+	Telemetry TelemetryRowA   // To be removed.
 }
 
 func (l *LeptonBuffer) ColorModel() color.Model {
@@ -60,6 +53,34 @@ func (l *LeptonBuffer) At(x, y int) color.Color {
 
 func (l *LeptonBuffer) Gray16At(x, y int) uint16 {
 	return l.Pix[y*80+x]
+}
+
+func (l *LeptonBuffer) Min() uint16 {
+	min := uint16(0xffff)
+	for y := 0; y < 60; y++ {
+		base := y * 80
+		for x := 0; x < 80; x++ {
+			j := l.Pix[base+x]
+			if j < min {
+				min = j
+			}
+		}
+	}
+	return min
+}
+
+func (l *LeptonBuffer) Max() uint16 {
+	max := uint16(0)
+	for y := 0; y < 60; y++ {
+		base := y * 80
+		for x := 0; x < 80; x++ {
+			j := l.Pix[base+x]
+			if j > max {
+				max = j
+			}
+		}
+	}
+	return max
 }
 
 // DiffGray encodes the difference in the image as a 8 bit image centered at
@@ -85,6 +106,7 @@ func (l *LeptonBuffer) DiffGray(r *LeptonBuffer) *image.Gray {
 func (l *LeptonBuffer) DiffRGB(r *LeptonBuffer) *image.NRGBA {
 	dst := image.NewNRGBA(image.Rect(0, 0, 80, 60))
 	for y := 0; y < 60; y++ {
+		base := y * 80
 		for x := 0; x < 80; x++ {
 			i := int(l.Gray16At(x, y)) - int(r.Gray16At(x, y))
 			if i > 127 {
@@ -92,7 +114,7 @@ func (l *LeptonBuffer) DiffRGB(r *LeptonBuffer) *image.NRGBA {
 			} else if i < -128 {
 				i = -128
 			}
-			dstBase := 4 * (y*80 + x)
+			dstBase := 4 * (base + x)
 			palBase := 3 * (i + 128)
 			dst.Pix[dstBase] = palette[palBase]
 			dst.Pix[dstBase+1] = palette[palBase+1]
@@ -107,8 +129,8 @@ func (l *LeptonBuffer) DiffRGB(r *LeptonBuffer) *image.NRGBA {
 // naively without gamma.
 func (l *LeptonBuffer) AGCGrayLinear() *image.Gray {
 	dst := image.NewGray(image.Rect(0, 0, 80, 60))
-	floor := l.Min
-	delta := int(l.Max - floor)
+	floor := l.Min()
+	delta := int(l.Max() - floor)
 	for y := 0; y < 60; y++ {
 		base := y * 80
 		for x := 0; x < 80; x++ {
@@ -122,11 +144,12 @@ func (l *LeptonBuffer) AGCGrayLinear() *image.Gray {
 // naively without gamma on a colorful palette.
 func (l *LeptonBuffer) AGCRGBLinear() *image.NRGBA {
 	dst := image.NewNRGBA(image.Rect(0, 0, 80, 60))
-	floor := l.Min
-	delta := int(l.Max - floor)
+	floor := l.Min()
+	delta := int(l.Max() - floor)
 	for y := 0; y < 60; y++ {
+		base := y * 80
 		for x := 0; x < 80; x++ {
-			dstBase := 4 * (y*80 + x)
+			dstBase := 4 * (base + x)
 			palBase := 3 * (int(l.Gray16At(x, y)-floor) * 255 / delta)
 			dst.Pix[dstBase] = palette[palBase]
 			dst.Pix[dstBase+1] = palette[palBase+1]
@@ -225,22 +248,6 @@ func PaletteRGB(vertical bool) *image.NRGBA {
 }
 
 // Private details.
-
-func (l *LeptonBuffer) updateStats() {
-	l.Max = uint16(0)
-	l.Min = uint16(0xffff)
-	for y := 0; y < 60; y++ {
-		for x := 0; x < 80; x++ {
-			j := l.Pix[y*80+x]
-			if j > l.Max {
-				l.Max = j
-			}
-			if j < l.Min {
-				l.Min = j
-			}
-		}
-	}
-}
 
 var palette = []uint8{
 	255, 255, 255, 253, 253, 253, 251, 251, 251, 249, 249, 249, 247, 247, 247,
