@@ -637,7 +637,14 @@ type TelemetryRowA struct {
 const (
 	packetHeaderDiscard = 0x0F00
 	packetHeaderMask    = 0x0FFF
-	// Observed status: 0x00000808, 0x1FFF0000, 0x01AD0000, 0xDCD0FFFF, 0x3FFF0001.
+	// Observed status:
+	//   0x00000808
+	//   0x00022200
+	//   0x01AD0000
+	//   0x1FFF0000
+	//   0x3FFF0001
+	//   0xDCD0FFFF
+	//   0xFFDCFFFF
 	statusFFCDesired    uint32 = 1 << 3                                                                                   // 0x00000008
 	statusFFCStateMask  uint32 = 1<<4 | 1<<5                                                                              // 0x00000030
 	statusFFCStateShift uint32 = 4                                                                                        //
@@ -646,13 +653,4 @@ const (
 	statusOvertemp      uint32 = 1 << 20                                                                                  // 0x00100000
 	statusMask                 = statusFFCDesired | statusFFCStateMask | statusAGCState | statusOvertemp | statusReserved // 0x00101838
 	statusMaskNil              = ^statusMask                                                                              // 0xFFEFE7C7
-	/*
-		statusFFCDesired    uint32 = 1 << (31 - 3)                                                           // 0x10000000
-		statusFFCStateMask  uint32 = 1<<(31-4) | 1<<(31-5)                                                   // 0x0C000000
-		statusFFCStateShift uint32 = (31 - 4)                                                                //
-		statusAGCState      uint32 = 1 << (31 - 12)                                                          // 0x00080000
-		statusOvertemp      uint32 = 1 << (31 - 20)                                                          // 0x00000800
-		statusMask                 = statusFFCDesired | statusFFCStateMask | statusAGCState | statusOvertemp // 0x1C080800
-		statusMaskNil              = ^statusMask                                                             // 0xE3F7F7FF
-	*/
 )
