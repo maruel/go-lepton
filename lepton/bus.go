@@ -346,14 +346,15 @@ func (i *I2C) GetAttribute(command Command, data interface{}) error {
 		return err
 	}
 	log.Printf("GetAttribute(%s, %s) = %#v", command, reflect.TypeOf(data).String(), data)
-	/* TODO(maruel): Verify CRC:
-	crc, err = i.readRegister(RegDataCRC)
-	if err != nil {
-		return err
-	}
-	if expected := CalculateCRC16(data); expected != crc {
-		return errors.New("invalid crc")
-	}
+	/*
+		// TODO(maruel): Verify CRC:
+		crc, err := i.readRegister(RegDataCRC)
+		if err != nil {
+			return err
+		}
+		if expected := crc16.ChecksumCCITT(b); expected != crc {
+			return fmt.Errorf("invalid crc; expected 0x%04X; got 0x%04X", expected, crc)
+		}
 	*/
 	return nil
 }

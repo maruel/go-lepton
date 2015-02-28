@@ -18,7 +18,6 @@
 //   https://drive.google.com/file/d/0B3wmCw6bdPqFblZsZ3l4SXM4R28/view (copy)
 //   p. 7 Sensitivity is below 0.05°C
 //   p. 19-21 Telemetry mode
-//   p. 22-24 Radiometry mode; TODO(maruel): Enable.
 //   p. 28-35 SPI protocol explanation.
 //
 // Lepton™ Software Interface Description Document (IDD) for i²c protocol:
@@ -363,6 +362,10 @@ func (l *Lepton) ReadImg() *LeptonBuffer {
 		for l.lastLine != l.maxLine() {
 			l.readLine()
 		}
+		// Automatically trigger FFC when applicable.
+		if l.currentImg.Metadata.FFCDesired == true {
+			go l.TriggerFFC()
+		}
 		if l.previousImg == nil || !l.previousImg.Equal(l.currentImg) {
 			l.stats.GoodFrames++
 			break
@@ -431,8 +434,6 @@ func (l *Lepton) readLine() {
 
 	l.stats.LastFail = nil
 	headerLine := int(binary.BigEndian.Uint16(l.packet[:2])) & packetHeaderMask
-	// TODO(maruel): Verify CRC:
-	// crc := binary.BigEndian.Uint16(l.packet[2:4])
 	if (headerLine & packetHeaderDiscard) == packetHeaderDiscard {
 		// Discard packet. This happens as the bandwidth of SPI is larger than data
 		// rate.
@@ -449,6 +450,8 @@ func (l *Lepton) readLine() {
 		l.lastLine = -1
 		return
 	}
+
+	// TODO(maruel): Do CRC check.
 
 	imgLine, telemetryLine := l.realLine(headerLine)
 	if headerLine != l.lastLine+1 {
@@ -636,11 +639,13 @@ type TelemetryRowA struct {
 // As documented as page.21
 const (
 	packetHeaderDiscard = 0x0F00
-	packetHeaderMask    = 0x0FFF
+	packetHeaderMask    = 0x0FFF // ID field is 12 bits. Leading 4 bits are reserved.
 	// Observed status:
 	//   0x00000808
+	//   0x00007A01
 	//   0x00022200
 	//   0x01AD0000
+	//   0x02BF0000
 	//   0x1FFF0000
 	//   0x3FFF0001
 	//   0xDCD0FFFF
