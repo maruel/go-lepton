@@ -251,8 +251,17 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 		log.Printf("WARNING: camera is not ready: %s", status)
 	}
 
+	agc := Disabled
+	if err := i2c.GetAttribute(AgcEnable, &agc); err != nil {
+		return nil, err
+	}
+	if agc != Disabled {
+		log.Printf("WARNING: AGC is %s", agc)
+		if err := i2c.SetAttribute(AgcEnable, Disabled); err != nil {
+			return nil, err
+		}
+	}
 	// Setup telemetry.
-	// Warning: Assumes AGC is disabled. There's no code here to enable it anyway.
 	if err := i2c.SetAttribute(SysTelemetryEnable, out.telemetry); err != nil {
 		return nil, err
 	}

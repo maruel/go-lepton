@@ -14,7 +14,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"reflect"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -27,7 +26,7 @@ type Command uint16
 
 // All the available commands.
 const (
-	AGCEnable                 Command = 0x0100 // 2   GET/SET
+	AgcEnable                 Command = 0x0100 // 2   GET/SET
 	AgcRoiSelect              Command = 0x0108 // 4   GET/SET
 	AgcHistogramStats         Command = 0x010C // 4   GET
 	AgcHeqDampFactor          Command = 0x0124 // 1   GET/SET
@@ -306,7 +305,7 @@ func (i *I2C) Close() error {
 }
 
 func (i *I2C) GetAttribute(command Command, data interface{}) error {
-	log.Printf("GetAttribute(%s, %s)", command, reflect.TypeOf(data).String())
+	//log.Printf("GetAttribute(%s, %s)", command, reflect.TypeOf(data).String())
 	nbWords := binary.Size(data) / 2
 	if nbWords > 1024 {
 		return errors.New("buffer too large")
@@ -345,7 +344,7 @@ func (i *I2C) GetAttribute(command Command, data interface{}) error {
 	if err := binary.Read(bytes.NewBuffer(b), binary.LittleEndian, data); err != nil {
 		return err
 	}
-	log.Printf("GetAttribute(%s, %s) = %#v", command, reflect.TypeOf(data).String(), data)
+	//log.Printf("GetAttribute(%s, %s) = %#v", command, reflect.TypeOf(data).String(), reflect.ValueOf(data).Elem().Interface())
 	/*
 		// TODO(maruel): Verify CRC:
 		crc, err := i.readRegister(RegDataCRC)
@@ -360,7 +359,7 @@ func (i *I2C) GetAttribute(command Command, data interface{}) error {
 }
 
 func (i *I2C) SetAttribute(command Command, data interface{}) error {
-	log.Printf("SetAttribute(%s, %#v)", command, data)
+	//log.Printf("SetAttribute(%s, %#v)", command, data)
 	buf := &bytes.Buffer{}
 	if err := binary.Write(buf, binary.LittleEndian, data); err != nil {
 		return err
