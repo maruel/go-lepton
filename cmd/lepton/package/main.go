@@ -18,7 +18,13 @@ var contents map[string]string
 var tmpl = template.Must(template.New("tmpl").Parse(`// Automatically generated file. Do not edit!
 // Generated with "go run package/main.go"
 
+// +build !debug
+
 package main
+
+func read(name string) []byte {
+	return staticFiles[name]
+}
 
 var staticFiles = map[string]string{
 {{range $key, $value := .}}	{{$key}}: {{$value}},

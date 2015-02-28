@@ -72,3 +72,12 @@ Power
 The FLIR Lepton takes ~150mW. The breakout board doesn't expose the necessary
 pins to put it in sleep mode. Sadly this means that if the Lepton goes into a
 bad mode, rebooting the Pi won't help.
+
+
+Debug build
+-----------
+
+To debug cmd/lepton/static/root.html so that each HTTP request returns the file
+from disk, use:
+
+    go install -tags debug ./cmd/lepton

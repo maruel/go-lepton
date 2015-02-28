@@ -557,7 +557,7 @@ func (l *Lepton) parseTelemetry(line int) {
 		case 2:
 			i.FFCState = FFCComplete
 		default:
-			panic(fmt.Errorf("unexpected fccstate %d; %v", fccstate, l.packet))
+			log.Printf("unexpected fccstate %d; %v", fccstate, l.packet)
 		}
 	} else {
 		switch fccstate {
@@ -568,7 +568,7 @@ func (l *Lepton) parseTelemetry(line int) {
 		case 3:
 			i.FFCState = FFCComplete
 		default:
-			panic(fmt.Errorf("unexpected fccstate %d; %v", fccstate, l.packet))
+			log.Printf("unexpected fccstate %d; %v", fccstate, l.packet)
 		}
 	}
 }

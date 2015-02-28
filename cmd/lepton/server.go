@@ -13,9 +13,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"image/png"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -25,8 +23,6 @@ import (
 	"github.com/maruel/interrupt"
 	"golang.org/x/net/websocket"
 )
-
-var rootTmpl = template.Must(template.New("name").Parse(staticFiles["root.html"]))
 
 type WebServer struct {
 	cond      sync.Cond
@@ -69,7 +65,7 @@ func (s *WebServer) root(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	s.cond.L.Lock()
 	defer s.cond.L.Unlock()
-	if err := rootTmpl.Execute(w, s); err != nil {
+	if _, err := w.Write(read("root.html")); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -77,7 +73,7 @@ func (s *WebServer) root(w http.ResponseWriter, r *http.Request) {
 func (s *WebServer) favicon(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "Cache-Control:public, max-age=2592000") // 30d
-	io.WriteString(w, staticFiles["photo_ir.png"])
+	w.Write(read("photo_ir.png"))
 }
 
 // stream sends all images as PseudoRGB as WebSocket frames.
