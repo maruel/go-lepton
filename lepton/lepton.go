@@ -578,14 +578,14 @@ func (l *Lepton) parseTelemetry(line int) {
 // Value after '-' is observed value.
 type TelemetryRowA struct {
 	TelemetryRevision  uint16     // 0  *
-	TimeCounter        DurationMS // 1
-	StatusBits         uint32     // 3  Bit field.
-	ModuleSerial       [16]uint8  // 5  Is empty (!)
-	SoftwareRevision   uint64     // 13
+	TimeCounter        DurationMS // 1  *
+	StatusBits         uint32     // 3  * Bit field (mostly make sense)
+	ModuleSerial       [16]uint8  // 5  - Is empty (!)
+	SoftwareRevision   uint64     // 13   Junk.
 	Reserved17         uint16     // 17 - 1101
 	Reserved18         uint16     // 18
 	Reserved19         uint16     // 19
-	FrameCounter       uint32     // 20
+	FrameCounter       uint32     // 20 *
 	FrameMean          uint16     // 22 * The average value from the whole frame.
 	FPATempCounts      uint16     // 23
 	FPATemp            CentiK     // 24 *
@@ -593,9 +593,9 @@ type TelemetryRowA struct {
 	HousingTemp        CentiK     // 27 *
 	Reserved27         uint16     // 27
 	Reserved28         uint16     // 28
-	FPATempLastFFC     CentiK     // 29
-	TimeCounterLastFFC DurationMS // 30
-	HousingTempLastFFC CentiK     // 32
+	FPATempLastFFC     CentiK     // 29 *
+	TimeCounterLastFFC DurationMS // 30 *
+	HousingTempLastFFC CentiK     // 32 *
 	Reserved33         uint16     // 33
 	AGCROILeft         uint16     // 35 * - 0 (Likely inversed, haven't confirmed)
 	AGCROITop          uint16     // 34 * - 0
