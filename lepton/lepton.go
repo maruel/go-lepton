@@ -42,9 +42,6 @@
 //   http://elinux.org/RPi_SPI
 package lepton
 
-// "stringer" can be installed with "go get golang.org/x/tools/cmd/stringer"
-//go:generate stringer -output=strings_gen.go -type=CameraStatus,Command,FFCShutterMode,FFCState,Flag,RegisterAddress,ShutterPosition,ShutterTempLockoutState,TelemetryLocation
-
 import (
 	"bytes"
 	"encoding/binary"
@@ -54,154 +51,10 @@ import (
 	"time"
 )
 
-// CameraStatus is retrieved via Lepton.GetStatus().
-type CameraStatus uint32
-
-// Valid values for CameraStatus.
-const (
-	SystemReady              CameraStatus = 0
-	SystemInitializing       CameraStatus = 1
-	SystemInLowPowerMode     CameraStatus = 2
-	SystemGoingIntoStandby   CameraStatus = 3
-	SystemFlatFieldInProcess CameraStatus = 4
-)
-
-// FFCShutterMode is used in FFCMode.
-type FFCShutterMode uint32
-
-// Valid values for FFCShutterMode.
-const (
-	FFCShutterModeManual   FFCShutterMode = 0
-	FFCShutterModeAuto     FFCShutterMode = 1
-	FFCShutterModeExternal FFCShutterMode = 2
-)
-
-// ShutterTempLockoutState is used in FFCMode.
-type ShutterTempLockoutState uint32
-
-// Valid values for ShutterTempLockoutState.
-const (
-	ShutterTempLockoutStateInactive ShutterTempLockoutState = 0
-	ShutterTempLockoutStateHigh     ShutterTempLockoutState = 1
-	ShutterTempLockoutStateLow      ShutterTempLockoutState = 2
-)
-
-// Flag is used in FFCMode.
-type Flag uint32
-
-// Valid values for Flag.
-const (
-	Disabled Flag = 0
-	Enabled  Flag = 1
-)
-
-// ShutterPosition is used with SysShutterPosition.
-type ShutterPosition uint32
-
-// Valid values for ShutterPosition.
-const (
-	ShutterPositionUnknown ShutterPosition = 0xFFFFFFFF // -1
-	ShutterPositionIdle    ShutterPosition = 0
-	ShutterPositionOpen    ShutterPosition = 1
-	ShutterPositionClosed  ShutterPosition = 2
-	ShutterPositionBrakeOn ShutterPosition = 3
-)
-
-// TelemetryLocation is used with SysTelemetryLocation.
-type TelemetryLocation uint32
-
-// Valid values for TelemetryLocation.
-const (
-	Header TelemetryLocation = 0
-	Footer TelemetryLocation = 1
-)
-
-// CentiK is temperature in 0.01°K
-type CentiK uint16
-
-func (c CentiK) String() string {
-	return fmt.Sprintf("%01d.%02d°K", c/100, c%100)
-}
-
-func (c CentiK) ToC() CentiC {
-	return CentiC(c)
-}
-
-// CentiC is temperature in 0.01°K but printed as °C.
-type CentiC uint16
-
-func (c CentiC) String() string {
-	v := int(c) - 27315
-	d := v % 100
-	if d < 0 {
-		d = -d
-	}
-	return fmt.Sprintf("%01d.%02d°C", v/100, d)
-}
-
-func (c CentiC) ToK() CentiK {
-	return CentiK(c)
-}
-
-// FFCState describes the Flat-Field Correction state.
-type FFCState uint8
-
-const (
-	// No FFC was requested.
-	FFCNever FFCState = 0
-	// FFC is in progress. It lasts 23 frames (at 27fps) so it lasts less than a second.
-	FFCInProgress FFCState = 1
-	// FFC was completed successfully.
-	FFCComplete FFCState = 2
-)
-
-type Stats struct {
-	LastFail        error
-	Resets          int
-	GoodFrames      int
-	DuplicateFrames int
-	TransferFails   int
-	GoodLines       int
-	BrokenLines     int
-	DiscardLines    int
-	BadSyncLines    int
-}
-
-// Status is returned by Lepton.GetStatus().
-type Status struct {
-	CameraStatus CameraStatus
-	CommandCount uint16
-	Reserved     uint16
-}
-
-// DurationMS is duration in millisecond
-type DurationMS uint32
-
-func (d DurationMS) ToDuration() time.Duration {
-	return time.Duration(d) * time.Millisecond
-}
-
-// FFCMode is returned by Lepton.GetFFCModeControl().
-type FFCMode struct {
-	FFCShutterMode          FFCShutterMode          // Default: FFCShutterModeExternal
-	ShutterTempLockoutState ShutterTempLockoutState // Default: ShutterTempLockoutStateInactive
-	VideoFreezeDuringFFC    Flag                    // Default: Enabled
-	FFCDesired              Flag                    // Default: Disabled
-	ElapsedTimeSinceLastFFC DurationMS              // Uptime in ms.
-	DesiredFFCPeriod        DurationMS              // Default: 300000
-	ExplicitCommandToOpen   Flag                    // Default: Disabled
-	DesiredFFCTempDelta     CentiK                  // Default: 300
-	ImminentDelay           uint16                  // Default: 52
-
-	// These are documented at page 51 but not listed in the structure.
-	// ClosePeriodInFrames uint16 // Default: 4
-	// OpenPeriodInFrames  uint16 // Default: 1
-}
-
-// Lepton controls a FLIR Lepton. It assumes a specific breakout board. Sadly
+// lepton controls a FLIR Lepton. It assumes a specific breakout board. Sadly
 // the breakout board doesn't expose the PWR_DWN_L and RESET_L lines so it is
 // impossible to shut down the Lepton.
-type Lepton struct {
+type lepton struct {
 	spi               *SPI
 	i2c               *I2C
 	currentImg        *LeptonBuffer
@@ -214,7 +67,7 @@ type Lepton struct {
 	telemetryLocation TelemetryLocation
 }
 
-func MakeLepton(path string, speed int) (*Lepton, error) {
+func MakeLepton(path string, speed int) (Lepton, error) {
 	// Max rate supported by FLIR Lepton is 25Mhz. Minimum usable rate is ~4Mhz
 	// to sustain framerate. Sadly the Lepton will inconditionally send 27fps,
 	// even if the effective rate is 9fps. Lower rate is less likely to get
@@ -231,6 +84,9 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 	}
 	if speed < 3900000 {
 		return nil, errors.New("speed specified is too slow")
+	}
+	if speed > 25000000 {
+		return nil, errors.New("speed specified is too high")
 	}
 	spi, err := MakeSPI(path, speed)
 	defer func() {
@@ -254,7 +110,7 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 	}
 
 	// Send a ping to ensure the device is working.
-	out := &Lepton{spi: spi, i2c: i2c, lastLine: -1, telemetry: Enabled, telemetryLocation: Header}
+	out := &lepton{spi: spi, i2c: i2c, lastLine: -1, telemetry: Enabled, telemetryLocation: Header}
 	status, err := out.GetStatus()
 	if err != nil {
 		return nil, err
@@ -287,7 +143,7 @@ func MakeLepton(path string, speed int) (*Lepton, error) {
 	return out, nil
 }
 
-func (l *Lepton) Close() error {
+func (l *lepton) Close() error {
 	var err error
 	if l.spi != nil {
 		err = l.spi.Close()
@@ -300,13 +156,12 @@ func (l *Lepton) Close() error {
 	return err
 }
 
-func (l *Lepton) GetStatus() (*Status, error) {
+func (l *lepton) GetStatus() (*Status, error) {
 	out := &Status{}
 	return out, l.i2c.GetAttribute(SysStatus, out)
 }
 
-// GetSerial returns the FLIR Lepton serial number.
-func (l *Lepton) GetSerial() (uint64, error) {
+func (l *lepton) GetSerial() (uint64, error) {
 	if l.serial == 0 {
 		out := uint64(0)
 		if err := l.i2c.GetAttribute(SysSerialNumber, &out); err != nil {
@@ -317,69 +172,57 @@ func (l *Lepton) GetSerial() (uint64, error) {
 	return l.serial, nil
 }
 
-// GetUptime returns the uptime. Rolls over after 1193 hours.
-func (l *Lepton) GetUptime() (time.Duration, error) {
+func (l *lepton) GetUptime() (time.Duration, error) {
 	var out DurationMS
 	err := l.i2c.GetAttribute(SysUptime, &out)
 	return out.ToDuration(), err
 }
 
-// GetTemperatureHousing returns the temperature in centi-Kelvin.
-func (l *Lepton) GetTemperatureHousing() (CentiC, error) {
+func (l *lepton) GetTemperatureHousing() (CentiC, error) {
 	var out CentiK
 	err := l.i2c.GetAttribute(SysHousingTemperature, &out)
 	return out.ToC(), err
 }
 
-// GetTemperature returns the temperature in centi-Kelvin.
-func (l *Lepton) GetTemperature() (CentiC, error) {
+func (l *lepton) GetTemperature() (CentiC, error) {
 	var out CentiK
 	err := l.i2c.GetAttribute(SysTemperature, &out)
 	return out.ToC(), err
 }
 
-// GetFFCModeControl returns a lot of internal data.
-func (l *Lepton) GetFFCModeControl() (*FFCMode, error) {
+func (l *lepton) GetFFCModeControl() (*FFCMode, error) {
 	out := &FFCMode{}
 	return out, l.i2c.GetAttribute(SysFFCMode, out)
 }
 
-// GetShutterPosition returns the position of the shutter if present.
-func (l *Lepton) GetShutterPosition() (ShutterPosition, error) {
+func (l *lepton) GetShutterPosition() (ShutterPosition, error) {
 	var out ShutterPosition
 	err := l.i2c.GetAttribute(SysShutterPosition, &out)
 	return out, err
 }
 
-// GetTelemetryEnable returns if telemetry is enabled.
-func (l *Lepton) GetTelemetryEnable() (Flag, error) {
+func (l *lepton) GetTelemetryEnable() (Flag, error) {
 	var out Flag
 	err := l.i2c.GetAttribute(SysTelemetryEnable, &out)
 	return out, err
 }
 
-// GetTelemetryLocation returns if telemetry is enabled.
-func (l *Lepton) GetTelemetryLocation() (TelemetryLocation, error) {
+func (l *lepton) GetTelemetryLocation() (TelemetryLocation, error) {
 	var out TelemetryLocation
 	err := l.i2c.GetAttribute(SysTelemetryLocation, &out)
 	return out, err
 }
 
-// TriggerFFC forces a Flat-Field Correction to be done by the camera for
-// recalibration. It takes 23 frames and the camera runs at 27fps so it lasts
-// less than a second.
-func (l *Lepton) TriggerFFC() error {
+func (l *lepton) TriggerFFC() error {
 	return l.i2c.RunCommand(SysFCCRunNormalization)
 }
 
-func (l *Lepton) Stats() Stats {
+func (l *lepton) Stats() Stats {
 	// TODO(maruel): atomic.
 	return l.stats
 }
 
-// ReadImg reads an image. It is fine to call other functions concurrently to
-// send commands to the camera.
-func (l *Lepton) ReadImg() *LeptonBuffer {
+func (l *lepton) ReadImg() *LeptonBuffer {
 	l.lastLine = -1
 	l.previousImg = l.currentImg
 	l.currentImg = &LeptonBuffer{}
@@ -409,7 +252,7 @@ func (l *Lepton) ReadImg() *LeptonBuffer {
 // Private details.
 
 // maxLine returns the last valid VoSPI line. Returns 59 or 62.
-func (l *Lepton) maxLine() int {
+func (l *lepton) maxLine() int {
 	if l.telemetry != Disabled {
 		return 59 + 3
 	}
@@ -417,7 +260,7 @@ func (l *Lepton) maxLine() int {
 }
 
 // realLine returns the image or telemetry line.
-func (l *Lepton) realLine(line int) (imgLine int, telemetryLine int) {
+func (l *lepton) realLine(line int) (imgLine int, telemetryLine int) {
 	if l.telemetry == Disabled {
 		return line, -1
 	}
@@ -442,7 +285,7 @@ func (l *Lepton) realLine(line int) (imgLine int, telemetryLine int) {
 // Each line is sent as a packet over SPI. The packet size is constant. See
 // page 28-35 for SPI protocol explanation.
 // https://drive.google.com/file/d/0B3wmCw6bdPqFblZsZ3l4SXM4R28/view
-func (l *Lepton) readLine() {
+func (l *lepton) readLine() {
 	// Operation must complete within 32ms. Frames occur every 38.4ms. With SPI,
 	// write must occur as read is being done, just sent dummy data.
 	n, err := l.spi.Read(l.packet[:])
@@ -533,7 +376,7 @@ func (l *Lepton) readLine() {
 	}
 }
 
-func (l *Lepton) parseTelemetry(line int) {
+func (l *lepton) parseTelemetry(line int) {
 	if line > 0 {
 		for i := 4; i < len(l.packet); i++ {
 			if l.packet[i] != 0 {

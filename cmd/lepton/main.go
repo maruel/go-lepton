@@ -32,7 +32,7 @@ var application = &subcommands.DefaultApplication{
 }
 */
 
-func printStats(l *lepton.Lepton, s *Seeder, noCR bool) {
+func printStats(l lepton.Lepton, s *Seeder, noCR bool) {
 	started := time.Now()
 	format := "\rframes: %d good %d duped; lines: %d good %d discard %d badsync %d broken; %d fail %d resets; %d HTTP %d Imgs %.1fs"
 	if noCR {
@@ -73,6 +73,7 @@ func mainImpl() error {
 	noPush := flag.Bool("nopush", false, "do not push to server even if configured")
 	verbose := flag.Bool("verbose", false, "enable log output")
 	query := flag.Bool("query", false, "query the camera then quit")
+	fake := flag.Bool("fake", false, "use a fake camera mock, useful to test without the hardware")
 	flag.Parse()
 
 	if len(flag.Args()) != 0 {
@@ -94,7 +95,16 @@ func mainImpl() error {
 
 	interrupt.HandleCtrlC()
 
-	l, err := lepton.MakeLepton("", 0)
+	var err error
+	var l lepton.Lepton
+	if !*fake {
+		l, err = lepton.MakeLepton("", 0)
+		if err != nil {
+			err = fmt.Errorf("%s\nIf testing without hardware, use -fake to simulate a camera", err)
+		}
+	} else {
+		l, err = lepton.MakeFakeLepton("", 0)
+	}
 	if l != nil {
 		defer l.Close()
 	}
