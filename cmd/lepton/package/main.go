@@ -23,7 +23,7 @@ var tmpl = template.Must(template.New("tmpl").Parse(`// Automatically generated 
 package main
 
 func read(name string) []byte {
-	return staticFiles[name]
+	return []byte(staticFiles[name])
 }
 
 var staticFiles = map[string]string{

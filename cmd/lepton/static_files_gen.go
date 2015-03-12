@@ -6,7 +6,7 @@
 package main
 
 func read(name string) []byte {
-	return staticFiles[name]
+	return []byte(staticFiles[name])
 }
 
 var staticFiles = map[string]string{

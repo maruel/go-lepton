@@ -124,6 +124,9 @@ func mainImpl() error {
 	if loc, err := l.GetTelemetryLocation(); err == nil {
 		fmt.Printf("TelemetryLocation:   %s\n", loc)
 	}
+	if pos, err := l.GetShutterPosition(); err == nil {
+		fmt.Printf("ShutterPosition:     %s\n", pos)
+	}
 	if mode, err := l.GetFFCModeControl(); err == nil {
 		fmt.Printf("FCCMode.FFCShutterMode:          %s\n", mode.FFCShutterMode)
 		fmt.Printf("FCCMode.ShutterTempLockoutState: %s\n", mode.ShutterTempLockoutState)

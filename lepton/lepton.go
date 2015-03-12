@@ -43,7 +43,7 @@
 package lepton
 
 // "stringer" can be installed with "go get golang.org/x/tools/cmd/stringer"
-//go:generate stringer -output=strings_gen.go -type=CameraStatus,Command,FFCShutterMode,FFCState,Flag,RegisterAddress,ShutterTempLockoutState,TelemetryLocation
+//go:generate stringer -output=strings_gen.go -type=CameraStatus,Command,FFCShutterMode,FFCState,Flag,RegisterAddress,ShutterPosition,ShutterTempLockoutState,TelemetryLocation
 
 import (
 	"bytes"
@@ -93,6 +93,18 @@ type Flag uint32
 const (
 	Disabled Flag = 0
 	Enabled  Flag = 1
+)
+
+// ShutterPosition is used with SysShutterPosition.
+type ShutterPosition uint32
+
+// Valid values for ShutterPosition.
+const (
+	ShutterPositionUnknown ShutterPosition = 0xFFFFFFFF // -1
+	ShutterPositionIdle    ShutterPosition = 0
+	ShutterPositionOpen    ShutterPosition = 1
+	ShutterPositionClosed  ShutterPosition = 2
+	ShutterPositionBrakeOn ShutterPosition = 3
 )
 
 // TelemetryLocation is used with SysTelemetryLocation.
@@ -332,6 +344,13 @@ func (l *Lepton) GetFFCModeControl() (*FFCMode, error) {
 	return out, l.i2c.GetAttribute(SysFFCMode, out)
 }
 
+// GetShutterPosition returns the position of the shutter if present.
+func (l *Lepton) GetShutterPosition() (ShutterPosition, error) {
+	var out ShutterPosition
+	err := l.i2c.GetAttribute(SysShutterPosition, &out)
+	return out, err
+}
+
 // GetTelemetryEnable returns if telemetry is enabled.
 func (l *Lepton) GetTelemetryEnable() (Flag, error) {
 	var out Flag
@@ -372,8 +391,9 @@ func (l *Lepton) ReadImg() *LeptonBuffer {
 			l.readLine()
 		}
 		// Automatically trigger FFC when applicable.
+		// TODO(maruel): Determine if the camera has a shutter.
 		if l.currentImg.Metadata.FFCDesired == true {
-			go l.TriggerFFC()
+			//go l.TriggerFFC()
 		}
 		if l.previousImg == nil || !l.previousImg.Equal(l.currentImg) {
 			l.stats.GoodFrames++
