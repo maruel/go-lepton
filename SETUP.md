@@ -18,22 +18,27 @@ Double-check connectors before starting up the Pi, as negative voltage would
 blow up the camera. There's 2 twists, one for cables 2, 3, 4 and 5.  Another for
 cables 6, 7 and 8. Here's a simpler graph of how to connect:
 
+Breakout board:
+
     1   2    3    4   5   6   7   8
     CS MOSI MISO CLK GND VIN SDA SCL
 
-    1  VIN(6)   X
-    3  SDA(7)   X
-    5  SCL(8)   X
-    7    X      X
-    9    X      X
-    11   X      X
-    13   X      X
-    15   X      X
-    17   X      X
-    19 MOSI(2)  X
-    21 MISO(3)  X
+Raspberry Pi with the SD Card on top and USB ports on bottom, here's where to
+plug the cables on the 26 pins port on the right:
+
+    1  VIN(6)    X
+    3  SDA(7)    X
+    5  SCL(8)    X
+    7    X       X
+    9    X       X
+    11   X       X
+    13   X       X
+    15   X       X
+    17   X       X
+    19 MOSI(2)   X
+    21 MISO(3)   X
     23 CLK(4)   CS(1)
-    25 GND(5)   X
+    25 GND(5)    X
 
 
 2. Updating Raspbian
