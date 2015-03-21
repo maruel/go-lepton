@@ -11,9 +11,10 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"image/png"
+	//"image/png"
 	"log"
 	"net"
 	"net/http"
@@ -98,7 +99,13 @@ func (s *WebServer) stream(w *websocket.Conn) {
 			if err == nil {
 				buf.Write([]byte("\n"))
 				encoder := base64.NewEncoder(base64.StdEncoding, buf)
-				err = png.Encode(encoder, img.AGCRGBLinear())
+
+				// Write the uint16 raw data as-is, encoded in base64.
+				binary.Write(encoder, binary.LittleEndian, img.Pix)
+
+				// Write the data as AGC'ed to 8 bits encoded in PNG.
+				//err = png.Encode(encoder, img.AGCRGBLinear())
+
 				encoder.Close()
 			}
 			if err == nil {
