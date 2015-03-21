@@ -22,16 +22,14 @@
 
       var socket = new WebSocket(websocketURL("/stream"));
       socket.addEventListener("message", function(event) {
-        var hdr = event.data[0];
-        var msg = event.data.slice(1);
-        if (hdr == "I") {
-          image.src = 'data:image/png;base64,' + msg;
-          context.drawImage(image, 0, 0, 800, 600);
-        } else if (hdr == "M") {
-          var data = JSON.parse(msg);
-          var str = JSON.stringify(data, null, 2);
-          info.innerText = str;
-        }
+        // metadata is json encoded structure.
+        var rawMetadata = event.data.split('\n', 1)[0];
+        // img is base64 encoded PNG.
+        var img = event.data.slice(rawMetadata.length);
+        image.src = 'data:image/png;base64,' + img;
+        context.drawImage(image, 0, 0, 800, 600);
+        var metadata = JSON.parse(rawMetadata);
+        info.innerText = JSON.stringify(metadata, null, 2);
       });
       socket.addEventListener("error", function(event) {
         errorMsg.innerText = "Websocket error" + event;
@@ -51,6 +49,7 @@
   <div id="errorMsg" class="errorMsg"></div><br>
   <canvas id="canvas1" class="mainImg" width="800" height="600"></canvas>
   <br>
+  Raw data:<br>
   <div id="info" class="info">Infos</div>
 </body>
 </html>

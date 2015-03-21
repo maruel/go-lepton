@@ -87,29 +87,24 @@ func (s *WebServer) stream(w *websocket.Conn) {
 	for !interrupt.IsSet() {
 		s.cond.Wait()
 		for ; !interrupt.IsSet() && lastIndex != s.lastIndex; lastIndex = (lastIndex + 1) % len(s.images) {
-			// Frame I is for Image.
-			buf.Write([]byte("I"))
+			// For each frame, sends metadata, then raw image, all as a single packet.
 			img := s.images[s.lastIndex]
-			s.cond.L.Unlock()
 			// Do the actual I/O without the lock.
-			encoder := base64.NewEncoder(base64.StdEncoding, buf)
-			var err error
-			if err = png.Encode(encoder, img.AGCRGBLinear()); err == nil {
+			s.cond.L.Unlock()
+
+			// Note: time.Duration and CentiC are sent as raw, which is less nice
+			// but easier to process.
+			err := json.NewEncoder(buf).Encode(&img.Metadata)
+			if err == nil {
+				buf.Write([]byte("\n"))
+				encoder := base64.NewEncoder(base64.StdEncoding, buf)
+				err = png.Encode(encoder, img.AGCRGBLinear())
 				encoder.Close()
+			}
+			if err == nil {
 				_, err = w.Write(buf.Bytes())
 			}
 			buf.Reset()
-			// Frame M is for Metadata.
-			if err == nil {
-				buf.Write([]byte("M"))
-				// Note: time.Duration and CentiC are sent as raw, which is less nice
-				// but easier to process.
-				err = json.NewEncoder(buf).Encode(&img.Metadata)
-				if err == nil {
-					_, err = w.Write(buf.Bytes())
-				}
-				buf.Reset()
-			}
 
 			s.cond.L.Lock()
 			// To break out of the loop, the lock must be held.
