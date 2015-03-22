@@ -84,6 +84,7 @@ func (f *fakeLepton) ReadImg() *LeptonBuffer {
 	time.Sleep(111 * time.Millisecond)
 	b := &LeptonBuffer{}
 	b.Metadata.FrameCount = f.last.Metadata.FrameCount + 1
+	b.Metadata.Temperature = CentiC(30300)
 	f.noise.update()
 	f.noise.render(b)
 	f.last = b
