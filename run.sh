@@ -6,8 +6,10 @@
 # Syncs and runs itself.
 
 BASEDIR=$(dirname $0)
+echo "go get -u github.com/maruel/go-lepton/cmd/lepton"
 go get -u github.com/maruel/go-lepton/cmd/lepton
+echo "lepton"
 lepton
 
-# Start again in case of crash.
+echo "Start again in case of crash."
 $BASEDIR/run.sh
