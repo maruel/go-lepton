@@ -10,4 +10,4 @@ go get -u github.com/maruel/go-lepton/cmd/lepton
 lepton
 
 # Start again in case of crash.
-./run.sh
+$BASEDIR/run.sh
