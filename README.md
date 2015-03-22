@@ -1,8 +1,9 @@
 go-lepton
 =========
 
-Serves images taken on a FLIR Lepton connected to a Raspberry Pi SPI port to
-over HTTP.
+Streams images taken on a FLIR Lepton connected to a Raspberry Pi SPI port to
+over via WebSockets via embedded HTTP server. It sends the raw data which is
+then processed as javascript.
 
 ![See how glass blocks IR](https://raw.github.com/maruel/go-lepton/master/cmd/lepton/static/photo_ir.png)
 
@@ -22,15 +23,7 @@ much faster than cross-compiling and transferring the file in.
 
     go get github.com/maruel/go-lepton/cmd/lepton
 
-Install it as a crontab @reboot, e.g.:
-
-    echo "su - $USER $GOPATH/src/github.com/maruel/go-lepton/run.sh" | sudo tee /root/start_lepton.sh
-    sudo chmod +x /root/start_lepton.sh
-    sudo crontab -e
-
-Then add
-
-    @reboot /root/start_lepton.sh
+Then run `lepton`.
 
 
 Verification

@@ -127,3 +127,28 @@ It's recommended to compile directly on the device. First, you'll need git:
 Then visit http://dave.cheney.net/unofficial-arm-tarballs and grab the right
 tarball, currently go1.4.linux-arm~multiarch-armv6-1.tar.gz. Extract it and
 setup your $GOROOT and $GOPATH environment.
+
+
+7. Start at boot
+----------------
+
+Create $HOME/start_lepton.sh with and edit as desired:
+
+    #!/usr/bin/env bash
+    export GOPATH="/home/$USER/src/gocode/src"
+    export PATH="$PATH:$GOPATH/bin"
+    echo "Starting run.sh"
+    mv lepton.log "lepton.log.`date --rfc-3339=seconds`"
+    /home/$USER/src/gocode/src/github.com/maruel/go-lepton/run.sh &> lepton.log
+
+Install the script as a crontab @reboot, e.g.:
+
+    # Create a script to downgrade privileges
+    echo "sudo -u maruel /home/maruel/start_lepton.sh" | sudo tee /root/start_lepton.sh
+    sudo chmod +x /root/start_lepton.sh
+    chmod +x $HOME/start_lepton.sh
+    sudo crontab -e
+
+Then add:
+
+    @reboot /root/start_lepton.sh
