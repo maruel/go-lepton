@@ -85,9 +85,10 @@ func (s *WebServer) stream(w *websocket.Conn) {
 	buf := &bytes.Buffer{}
 	s.cond.L.Lock()
 	defer s.cond.L.Unlock()
-	for !interrupt.IsSet() {
+	var err error
+	for !interrupt.IsSet() && err == nil {
 		s.cond.Wait()
-		for ; !interrupt.IsSet() && lastIndex != s.lastIndex; lastIndex = (lastIndex + 1) % len(s.images) {
+		for ; !interrupt.IsSet() && err == nil && lastIndex != s.lastIndex; lastIndex = (lastIndex + 1) % len(s.images) {
 			// For each frame, sends metadata, then raw image, all as a single packet.
 			img := s.images[s.lastIndex]
 			// Do the actual I/O without the lock.
@@ -95,7 +96,7 @@ func (s *WebServer) stream(w *websocket.Conn) {
 
 			// Note: time.Duration and CentiC are sent as raw, which is less nice
 			// but easier to process.
-			err := json.NewEncoder(buf).Encode(&img.Metadata)
+			err = json.NewEncoder(buf).Encode(&img.Metadata)
 			if err == nil {
 				buf.Write([]byte("\n"))
 				encoder := base64.NewEncoder(base64.StdEncoding, buf)
@@ -113,14 +114,11 @@ func (s *WebServer) stream(w *websocket.Conn) {
 			}
 			buf.Reset()
 
-			s.cond.L.Lock()
 			// To break out of the loop, the lock must be held.
-			if err != nil {
-				log.Printf("websocket err: %s", err)
-				break
-			}
+			s.cond.L.Lock()
 		}
 	}
+	log.Printf("websocket err: %s", err)
 }
 
 // Private details.
