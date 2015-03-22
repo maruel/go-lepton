@@ -5,7 +5,6 @@
 package lepton
 
 import (
-	"log"
 	"math/rand"
 	"time"
 )
@@ -30,7 +29,6 @@ func makeNoise() *noise {
 		n.vectors[i].x = n.rand.NormFloat64()*14 + 40
 		n.vectors[i].y = n.rand.NormFloat64()*10 + 30
 	}
-	log.Printf("Vectors: %#v", n.vectors)
 	return n
 }
 

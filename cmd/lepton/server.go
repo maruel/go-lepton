@@ -79,7 +79,7 @@ func (s *WebServer) favicon(w http.ResponseWriter, r *http.Request) {
 
 // stream sends all images as PseudoRGB as WebSocket frames.
 func (s *WebServer) stream(w *websocket.Conn) {
-	log.Printf("websocket from %#v", w)
+	log.Printf("websocket %s", w.Config().Origin)
 	defer w.Close()
 	lastIndex := 0
 	buf := &bytes.Buffer{}
@@ -118,7 +118,11 @@ func (s *WebServer) stream(w *websocket.Conn) {
 			s.cond.L.Lock()
 		}
 	}
-	log.Printf("websocket err: %s", err)
+	if err == nil {
+		log.Printf("websocket %s closed", w.Config().Origin)
+	} else {
+		log.Printf("websocket %s closed: %s", w.Config().Origin, err)
+	}
 }
 
 // Private details.
