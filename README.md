@@ -5,7 +5,13 @@ Streams images taken on a FLIR Lepton connected to a Raspberry Pi SPI port to
 over via WebSockets via embedded HTTP server. It sends the raw data which is
 then processed as javascript.
 
-![See how glass blocks IR](https://raw.github.com/maruel/go-lepton/master/cmd/lepton/static/photo_ir.png)
+<a href="https://www.raspberrypi.org/"><img
+src="https://maruel.net/images/raspberrypirev2.jpg" width=107 height=71
+/></a> + <a
+href="https://twitter.com/groupgetscom/status/524762927895953409"><img
+src="https://maruel.net/images/flir.jpg" width=102 height=76 /></a> → <a
+href="https://github.com/maruel/go-lepton"><img
+src="https://maruel.net/images/photo_ir.png" /></a>
 
 
 Prerequisite Setup
