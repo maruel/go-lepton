@@ -156,7 +156,7 @@
         for (var i = 0; i < uint16.length; i++) {
           var o = 4*i;
           imgDataSmall.data[o+3] = 255;
-          var intensity = (uint16[i]-minV) * 255/delta;
+          var intensity = Math.round((uint16[i]-minV) * 255/delta);
 
           // Gray.
           //imgDataSmall.data[o] = intensity;
