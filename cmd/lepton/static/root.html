@@ -87,12 +87,20 @@
       elemMax = document.getElementById("max");
       elemMin = document.getElementById("min");
       newSocket();
+      drawPalette();
+    }
 
+    function drawPalette() {
       var ca = document.getElementById("canvasPalette");
       var ctx = ca.getContext("2d");
+      var useGray = document.getElementById("useGray").checked;
       for (var y = 0; y < ca.height; y++) {
-        var base = 3*y;
-        ctx.fillStyle = 'rgb('+palette[base]+','+ palette[base+1]+','+palette[base+2]+')';
+        if (useGray) {
+          ctx.fillStyle = 'rgb('+y+','+y+','+y+')';
+        } else {
+          var base = 3*y;
+          ctx.fillStyle = 'rgb('+palette[base]+','+ palette[base+1]+','+palette[base+2]+')';
+        }
         ctx.fillRect(0, y, ca.width, 1);
       }
     }
@@ -153,20 +161,23 @@
         var delta = maxV-minV;
 
         // Rasterize AGC from 14bits Gray to 8bits RGBA.
+        var useGray = document.getElementById("useGray").checked;
         for (var i = 0; i < uint16.length; i++) {
           var o = 4*i;
           imgDataSmall.data[o+3] = 255;
-          var intensity = (uint16[i]-minV) * 255/delta;
+          var intensity = Math.round((uint16[i]-minV) * 255/delta);
 
-          // Gray.
-          //imgDataSmall.data[o] = intensity;
-          //imgDataSmall.data[o+1] = intensity;
-          //imgDataSmall.data[o+2] = intensity;
-
-          // Palette.
-          imgDataSmall.data[o] = palette[3*intensity];
-          imgDataSmall.data[o+1] = palette[3*intensity+2];
-          imgDataSmall.data[o+2] = palette[3*intensity+2];
+          if (useGray) {
+            // Gray.
+            imgDataSmall.data[o] = intensity;
+            imgDataSmall.data[o+1] = intensity;
+            imgDataSmall.data[o+2] = intensity;
+          } else {
+            // Palette.
+            imgDataSmall.data[o] = palette[3*intensity];
+            imgDataSmall.data[o+1] = palette[3*intensity+2];
+            imgDataSmall.data[o+2] = palette[3*intensity+2];
+          }
         }
         contextSmall.putImageData(imgDataSmall, 0, 0);
 
@@ -215,6 +226,7 @@
   <canvas id="canvas1" class="mainImg" width="800" height="600"></canvas>
   <canvas id="canvasPalette" class="mainImg" width="50" height="256"></canvas>
   <br>
+  <label><input id="useGray" type="checkbox" onchange="drawPalette()">Use gray palette</label>
   Max: <div id="max"></div><br>
   Min: <div id="min"></div><br>
   Avg: <div id="avg"></div><br>
