@@ -99,7 +99,7 @@ func MakeLepton(path string, speed int) (Lepton, error) {
 	}
 
 	// Rated speed is 1Mhz.
-	i2c, err := MakeI2C()
+	i2c, err := MakeI2CLepton()
 	defer func() {
 		if i2c != nil {
 			i2c.Close()
