@@ -40,7 +40,7 @@ func (n *noise) update() {
 	}
 }
 
-func (n *noise) render(b *LeptonBuffer) {
+func (n *noise) render(f *Frame) {
 	avg := int32(0)
 	dynamicRange := 128
 	for y := 0; y < 60; y++ {
@@ -60,36 +60,36 @@ func (n *noise) render(b *LeptonBuffer) {
 				value = float64(8192 - dynamicRange)
 			}
 			v := uint16(value)
-			b.Pix[base+x] = v
+			f.Pix[base+x] = v
 			avg += int32(v)
 		}
 	}
-	b.Metadata.AverageValue = uint16(avg / (80 * 60))
+	f.Metadata.AverageValue = uint16(avg / (80 * 60))
 }
 
 type fakeLepton struct {
 	noise *noise
-	last  *LeptonBuffer
+	last  *Frame
 	start time.Time
 	stats Stats
 }
 
 func MakeFakeLepton(path string, speed int) (Lepton, error) {
-	last := &LeptonBuffer{}
+	last := &Frame{}
 	return &fakeLepton{noise: makeNoise(), last: last, start: time.Now().UTC()}, nil
 }
 
-func (f *fakeLepton) ReadImg() *LeptonBuffer {
+func (f *fakeLepton) ReadImg() *Frame {
 	// ~9hz
 	time.Sleep(111 * time.Millisecond)
-	b := &LeptonBuffer{}
-	b.Metadata.FrameCount = f.last.Metadata.FrameCount + 1
-	b.Metadata.Temperature = CentiC(30300)
+	fr := &Frame{}
+	fr.Metadata.FrameCount = f.last.Metadata.FrameCount + 1
+	fr.Metadata.Temperature = CentiC(30300)
 	f.noise.update()
-	f.noise.render(b)
-	f.last = b
+	f.noise.render(fr)
+	f.last = fr
 	f.stats.GoodFrames++
-	return b
+	return fr
 }
 
 // Stubs.

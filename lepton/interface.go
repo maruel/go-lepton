@@ -26,7 +26,7 @@ type Lepton interface {
 	GetTemperature() (CentiC, error)                  // GetTemperature returns the temperature in centi-Kelvin.
 	GetTemperatureHousing() (CentiC, error)           // GetTemperatureHousing returns the temperature in centi-Kelvin.
 	GetUptime() (time.Duration, error)                // GetUptime returns the uptime. Rolls over after 1193 hours.
-	ReadImg() *LeptonBuffer                           // ReadImg reads an image. It is fine to call other functions concurrently to send commands to the camera.
+	ReadImg() *Frame                                  // ReadImg reads an image. It is fine to call other functions concurrently to send commands to the camera.
 	Stats() Stats                                     //
 	TriggerFFC() error                                // TriggerFFC forces a Flat-Field Correction to be done by the camera for recalibration. It takes 23 frames and the camera runs at 27fps so it lasts less than a second.
 

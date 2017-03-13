@@ -47,7 +47,7 @@ func (s *Seeder) Stats() SeederStats {
 	return s.stats
 }
 
-func (s *Seeder) sendImages(c <-chan *lepton.LeptonBuffer) {
+func (s *Seeder) sendImages(c <-chan *lepton.Frame) {
 	/*
 		// Disable compression because the bulk of data is PNGs and the CPU is slow.
 		var t http.Transport = http.DefaultTransport
@@ -56,7 +56,7 @@ func (s *Seeder) sendImages(c <-chan *lepton.LeptonBuffer) {
 	*/
 	client := &http.Client{}
 
-	imgs := make([]*lepton.LeptonBuffer, 0, 9*5)
+	imgs := make([]*lepton.Frame, 0, 9*5)
 	for {
 		// Do not send more than 30 images at a time.
 		imgs = imgs[:0]
@@ -80,7 +80,7 @@ func (s *Seeder) sendImages(c <-chan *lepton.LeptonBuffer) {
 	}
 }
 
-func (s *Seeder) sendImgs(client *http.Client, imgs []*lepton.LeptonBuffer) {
+func (s *Seeder) sendImgs(client *http.Client, imgs []*lepton.Frame) {
 	req := &api.PushRequest{
 		ID:     s.config.ID,
 		Secret: s.config.Secret,

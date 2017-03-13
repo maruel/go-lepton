@@ -157,10 +157,10 @@ func mainImpl() error {
 		s = LoadSeeder()
 	}
 
-	c := make(chan *lepton.LeptonBuffer, 9*60)
-	var d chan *lepton.LeptonBuffer
+	c := make(chan *lepton.Frame, 9*60)
+	var d chan *lepton.Frame
 	if s != nil {
-		d = make(chan *lepton.LeptonBuffer, 9*60)
+		d = make(chan *lepton.Frame, 9*60)
 	}
 
 	// Lepton reader loop.

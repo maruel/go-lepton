@@ -28,11 +28,11 @@ import (
 type WebServer struct {
 	cond      sync.Cond
 	state     string
-	images    [9 * 10]*lepton.LeptonBuffer // 10 seconds worth of images. Each image is ~10kb.
-	lastIndex int                          // Index of the most recent image.
+	images    [9 * 10]*lepton.Frame // 10 seconds worth of images. Each image is ~10kb.
+	lastIndex int                   // Index of the most recent image.
 }
 
-func (s *WebServer) AddImg(img *lepton.LeptonBuffer) {
+func (s *WebServer) AddImg(img *lepton.Frame) {
 	s.cond.L.Lock()
 	defer s.cond.L.Unlock()
 	s.lastIndex = (s.lastIndex + 1) % len(s.images)

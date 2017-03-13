@@ -33,29 +33,29 @@ type Metadata struct {
 // Values centered around 8192 accorgind to camera body temperature. Effective
 // range is 14 bits, so [0, 16383].
 // Each 1 increment is approximatively 0.025°K.
-type LeptonBuffer struct {
+type Frame struct {
 	Pix       [80 * 60]uint16 // 9600 bytes.
 	Metadata  Metadata        // Values updated at each frame.
 	Telemetry TelemetryRowA   // To be removed.
 }
 
-func (l *LeptonBuffer) ColorModel() color.Model {
+func (l *Frame) ColorModel() color.Model {
 	return color.Gray16Model
 }
 
-func (l *LeptonBuffer) Bounds() image.Rectangle {
+func (l *Frame) Bounds() image.Rectangle {
 	return image.Rect(0, 0, 80, 60)
 }
 
-func (l *LeptonBuffer) At(x, y int) color.Color {
+func (l *Frame) At(x, y int) color.Color {
 	return color.Gray16{l.Gray16At(x, y)}
 }
 
-func (l *LeptonBuffer) Gray16At(x, y int) uint16 {
+func (l *Frame) Gray16At(x, y int) uint16 {
 	return l.Pix[y*80+x]
 }
 
-func (l *LeptonBuffer) Min() uint16 {
+func (l *Frame) Min() uint16 {
 	min := uint16(0xffff)
 	for y := 0; y < 60; y++ {
 		base := y * 80
@@ -69,7 +69,7 @@ func (l *LeptonBuffer) Min() uint16 {
 	return min
 }
 
-func (l *LeptonBuffer) Max() uint16 {
+func (l *Frame) Max() uint16 {
 	max := uint16(0)
 	for y := 0; y < 60; y++ {
 		base := y * 80
@@ -85,7 +85,7 @@ func (l *LeptonBuffer) Max() uint16 {
 
 // DiffGray encodes the difference in the image as a 8 bit image centered at
 // 128.
-func (l *LeptonBuffer) DiffGray(r *LeptonBuffer) *image.Gray {
+func (l *Frame) DiffGray(r *Frame) *image.Gray {
 	dst := image.NewGray(image.Rect(0, 0, 80, 60))
 	for y := 0; y < 60; y++ {
 		base := y * 80
@@ -103,7 +103,7 @@ func (l *LeptonBuffer) DiffGray(r *LeptonBuffer) *image.Gray {
 }
 
 // DiffRGB encodes the difference in the image as an RGB image.
-func (l *LeptonBuffer) DiffRGB(r *LeptonBuffer) *image.NRGBA {
+func (l *Frame) DiffRGB(r *Frame) *image.NRGBA {
 	dst := image.NewNRGBA(image.Rect(0, 0, 80, 60))
 	for y := 0; y < 60; y++ {
 		base := y * 80
@@ -127,7 +127,7 @@ func (l *LeptonBuffer) DiffRGB(r *LeptonBuffer) *image.NRGBA {
 
 // AGCGrayLinear reduces the dynamic range of a 14 bits down to 8 bits very
 // naively without gamma.
-func (l *LeptonBuffer) AGCGrayLinear() *image.Gray {
+func (l *Frame) AGCGrayLinear() *image.Gray {
 	dst := image.NewGray(image.Rect(0, 0, 80, 60))
 	floor := l.Min()
 	delta := int(l.Max() - floor)
@@ -142,7 +142,7 @@ func (l *LeptonBuffer) AGCGrayLinear() *image.Gray {
 
 // AGCGrayLinear reduces the dynamic range of a 14 bits down to 8 bits very
 // naively without gamma on a colorful palette.
-func (l *LeptonBuffer) AGCRGBLinear() *image.NRGBA {
+func (l *Frame) AGCRGBLinear() *image.NRGBA {
 	dst := image.NewNRGBA(image.Rect(0, 0, 80, 60))
 	floor := l.Min()
 	delta := int(l.Max() - floor)
@@ -196,7 +196,7 @@ func Gray14ToRGB(intensity uint16) color.NRGBA {
 
 // PseudoColor reduces the dynamic range of a 14 bits down to RGB. It doesn't
 // apply AGC.
-func (l *LeptonBuffer) PseudoColor() *image.NRGBA {
+func (l *Frame) PseudoColor() *image.NRGBA {
 	dst := image.NewNRGBA(image.Rect(0, 0, 80, 60))
 	for y := 0; y < 60; y++ {
 		for x := 0; x < 80; x++ {
@@ -206,7 +206,7 @@ func (l *LeptonBuffer) PseudoColor() *image.NRGBA {
 	return dst
 }
 
-func (l *LeptonBuffer) Equal(r *LeptonBuffer) bool {
+func (l *Frame) Equal(r *Frame) bool {
 	for y := 0; y < 60; y++ {
 		base := y * 80
 		for x := 0; x < 80; x++ {

@@ -57,8 +57,8 @@ import (
 type lepton struct {
 	spi               *SPI
 	i2c               *I2C
-	currentImg        *LeptonBuffer
-	previousImg       *LeptonBuffer
+	currentImg        *Frame
+	previousImg       *Frame
 	lastLine          int        // Last valid line number, or -1 if no valid line was yet received.
 	packet            [164]uint8 // one line is sent as a SPI packet.
 	stats             Stats
@@ -222,10 +222,10 @@ func (l *lepton) Stats() Stats {
 	return l.stats
 }
 
-func (l *lepton) ReadImg() *LeptonBuffer {
+func (l *lepton) ReadImg() *Frame {
 	l.lastLine = -1
 	l.previousImg = l.currentImg
-	l.currentImg = &LeptonBuffer{}
+	l.currentImg = &Frame{}
 	for {
 		// TODO(maruel): Fail after N errors?
 		// TODO(maruel): Skip 2 frames since they'll be the same data so no need
