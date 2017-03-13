@@ -2,95 +2,55 @@
 // Use of this source code is governed under the Apache License, Version 2.0
 // that can be found in the LICENSE file.
 
-package lepton
+// Package gray14 implements functions specifically to manipulate image.Gray16
+// containing a 14 bits intensity image.
+package gray14
 
 import (
 	"fmt"
 	"image"
 	"image/color"
-	"time"
 )
 
-// Metadata is constructed from TelemetryRowA, which is sent at each frame.
-type Metadata struct {
-	SinceStartup          time.Duration //
-	FrameCount            uint32        // Number of frames since the start of the camera, in 27fps (not 9fps).
-	AverageValue          uint16        // Average value of the buffer.
-	Temperature           CentiC        //
-	TemperatureHousing    CentiC        //
-	RawTemperature        uint16        //
-	RawTemperatureHousing uint16        //
-	FFCSince              time.Duration // Time since last FFC.
-	FFCTemperature        CentiC        // Temperature at last FFC.
-	FFCTemperatureHousing CentiC        //
-	FFCState              FFCState      // Current FFC state, e.g. if one is happening.
-	FFCDesired            bool          // Asserted at start-up, after period (default 3m) or after temperature change (default 3°K). Indicates that an FFC should be triggered as soon as possible.
-	Overtemp              bool          // true 10s before self-shutdown.
-}
-
-// Image implements image.Image. It is essentially a Gray16 but faster
-// since the Raspberry Pi is CPU constrained.
-// Values centered around 8192 accorgind to camera body temperature. Effective
-// range is 14 bits, so [0, 16383].
-// Each 1 increment is approximatively 0.025°K.
-type Frame struct {
-	Pix       [80 * 60]uint16 // 9600 bytes.
-	Metadata  Metadata        // Values updated at each frame.
-	Telemetry TelemetryRowA   // To be removed.
-}
-
-func (l *Frame) ColorModel() color.Model {
-	return color.Gray16Model
-}
-
-func (l *Frame) Bounds() image.Rectangle {
-	return image.Rect(0, 0, 80, 60)
-}
-
-func (l *Frame) At(x, y int) color.Color {
-	return color.Gray16{l.Gray16At(x, y)}
-}
-
-func (l *Frame) Gray16At(x, y int) uint16 {
-	return l.Pix[y*80+x]
-}
-
-func (l *Frame) Min() uint16 {
-	min := uint16(0xffff)
-	for y := 0; y < 60; y++ {
-		base := y * 80
-		for x := 0; x < 80; x++ {
-			j := l.Pix[base+x]
-			if j < min {
-				min = j
+// Min returns the lowest intensity pixel of the image.
+func Min(i *image.Gray16) uint16 {
+	out := uint16(0xffff)
+	b := i.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			if j := i.Gray16At(x, y).Y; j < out {
+				out = j
 			}
 		}
 	}
-	return min
+	return out
 }
 
-func (l *Frame) Max() uint16 {
-	max := uint16(0)
-	for y := 0; y < 60; y++ {
-		base := y * 80
-		for x := 0; x < 80; x++ {
-			j := l.Pix[base+x]
-			if j > max {
-				max = j
+// Max returns the highest intensity pixel of the image.
+func Max(i *image.Gray16) uint16 {
+	out := uint16(0)
+	b := i.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			if j := i.Gray16At(x, y).Y; j > out {
+				out = j
 			}
 		}
 	}
-	return max
+	return out
 }
 
-// DiffGray encodes the difference in the image as a 8 bit image centered at
-// 128.
-func (l *Frame) DiffGray(r *Frame) *image.Gray {
-	dst := image.NewGray(image.Rect(0, 0, 80, 60))
-	for y := 0; y < 60; y++ {
-		base := y * 80
-		for x := 0; x < 80; x++ {
-			i := int(l.Gray16At(x, y)) - int(r.Gray16At(x, y))
+// Diff encodes the difference in the image as a 8 bit image centered at 128.
+func Diff(a, b *image.Gray16) *image.Gray {
+	bounds := a.Bounds()
+	if bounds != b.Bounds() {
+		return nil
+	}
+	dst := image.NewGray(bounds)
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		base := y * bounds.Dx()
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			i := int(a.Gray16At(x, y).Y) - int(b.Gray16At(x, y).Y)
 			if i > 127 {
 				i = 127
 			} else if i < -128 {
@@ -102,71 +62,29 @@ func (l *Frame) DiffGray(r *Frame) *image.Gray {
 	return dst
 }
 
-// DiffRGB encodes the difference in the image as an RGB image.
-func (l *Frame) DiffRGB(r *Frame) *image.NRGBA {
-	dst := image.NewNRGBA(image.Rect(0, 0, 80, 60))
-	for y := 0; y < 60; y++ {
-		base := y * 80
-		for x := 0; x < 80; x++ {
-			i := int(l.Gray16At(x, y)) - int(r.Gray16At(x, y))
-			if i > 127 {
-				i = 127
-			} else if i < -128 {
-				i = -128
-			}
-			dstBase := 4 * (base + x)
-			palBase := 3 * (i + 128)
-			dst.Pix[dstBase] = palette[palBase]
-			dst.Pix[dstBase+1] = palette[palBase+1]
-			dst.Pix[dstBase+2] = palette[palBase+2]
-			dst.Pix[dstBase+3] = 255
+// AGCLinear reduces the dynamic range of a 14 bits down to 8 bits very naively
+// without gamma.
+func AGCLinear(i *image.Gray16) *image.Gray {
+	b := i.Bounds()
+	dst := image.NewGray(b)
+	floor := Min(i)
+	delta := int(Max(i) - floor)
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		base := y * b.Dx()
+		for x := b.Min.X; x < b.Max.X; x++ {
+			dst.Pix[base+x] = uint8(int(i.Gray16At(x, y).Y-floor) * 255 / delta)
 		}
 	}
 	return dst
 }
 
-// AGCGrayLinear reduces the dynamic range of a 14 bits down to 8 bits very
-// naively without gamma.
-func (l *Frame) AGCGrayLinear() *image.Gray {
-	dst := image.NewGray(image.Rect(0, 0, 80, 60))
-	floor := l.Min()
-	delta := int(l.Max() - floor)
-	for y := 0; y < 60; y++ {
-		base := y * 80
-		for x := 0; x < 80; x++ {
-			dst.Pix[base+x] = uint8(int(l.Gray16At(x, y)-floor) * 255 / delta)
-		}
-	}
-	return dst
-}
-
-// AGCGrayLinear reduces the dynamic range of a 14 bits down to 8 bits very
-// naively without gamma on a colorful palette.
-func (l *Frame) AGCRGBLinear() *image.NRGBA {
-	dst := image.NewNRGBA(image.Rect(0, 0, 80, 60))
-	floor := l.Min()
-	delta := int(l.Max() - floor)
-	for y := 0; y < 60; y++ {
-		base := y * 80
-		for x := 0; x < 80; x++ {
-			dstBase := 4 * (base + x)
-			palBase := 3 * (int(l.Gray16At(x, y)-floor) * 255 / delta)
-			dst.Pix[dstBase] = palette[palBase]
-			dst.Pix[dstBase+1] = palette[palBase+1]
-			dst.Pix[dstBase+2] = palette[palBase+2]
-			dst.Pix[dstBase+3] = 255
-		}
-	}
-	return dst
-}
-
-// Gray14ToRGB converts the image into a RGB with pseudo-colors.
+// ToRGB converts the image into a RGB with pseudo-colors.
 //
 // Uses 9bits long palette (512) centered around 8192 for a total range of 512.
 // TODO(maruel): Confirm it's real.
 // With room temperature of 20C° and precision per unit of 0.025°K, range is
 // 512*0.025 = 12.8. (?)
-func Gray14ToRGB(intensity uint16) color.NRGBA {
+func ToRGB(intensity uint16) color.NRGBA {
 	// Range is [-255, 255].
 	i := (int(intensity) - 8192)
 	if i < 0 {
@@ -196,28 +114,32 @@ func Gray14ToRGB(intensity uint16) color.NRGBA {
 
 // PseudoColor reduces the dynamic range of a 14 bits down to RGB. It doesn't
 // apply AGC.
-func (l *Frame) PseudoColor() *image.NRGBA {
-	dst := image.NewNRGBA(image.Rect(0, 0, 80, 60))
-	for y := 0; y < 60; y++ {
-		for x := 0; x < 80; x++ {
-			dst.SetNRGBA(x, y, Gray14ToRGB(l.Gray16At(x, y)))
+func PseudoColor(i *image.Gray16) *image.NRGBA {
+	b := i.Bounds()
+	dst := image.NewNRGBA(b)
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			dst.SetNRGBA(x, y, ToRGB(i.Gray16At(x, y).Y))
 		}
 	}
 	return dst
 }
 
-func (l *Frame) Equal(r *Frame) bool {
-	for y := 0; y < 60; y++ {
-		base := y * 80
-		for x := 0; x < 80; x++ {
-			if l.Pix[base+x] != r.Pix[base+x] {
-				return false
-			}
+// Equal returns true if the two frames are equal.
+func Equal(a, b *image.Gray16) bool {
+	bounds := a.Bounds()
+	if bounds != b.Bounds() {
+		return false
+	}
+	for i := 0; i < len(a.Pix); i++ {
+		if a.Pix[i] != b.Pix[i] {
+			return false
 		}
 	}
 	return true
 }
 
+// PaletteGray returns a gray palette.
 func PaletteGray(vertical bool) *image.Gray {
 	x, y := 256, 1
 	if vertical {
@@ -230,6 +152,7 @@ func PaletteGray(vertical bool) *image.Gray {
 	return dst
 }
 
+// PaletteRGB returns the default colorful palette.
 func PaletteRGB(vertical bool) *image.NRGBA {
 	x, y := 256, 1
 	if vertical {

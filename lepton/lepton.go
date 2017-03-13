@@ -47,8 +47,12 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
 	"log"
 	"time"
+
+	"github.com/maruel/go-lepton/lepton/gray14"
 )
 
 // lepton controls a FLIR Lepton. It assumes a specific breakout board. Sadly
@@ -116,7 +120,7 @@ func MakeLepton(path string, speed int) (Lepton, error) {
 		return nil, err
 	}
 	if status.CameraStatus != SystemReady {
-		log.Printf("WARNING: camera is not ready: %s", status)
+		log.Printf("WARNING: camera is not ready: %v", status)
 	}
 
 	agc := Disabled
@@ -225,7 +229,7 @@ func (l *lepton) Stats() Stats {
 func (l *lepton) ReadImg() *Frame {
 	l.lastLine = -1
 	l.previousImg = l.currentImg
-	l.currentImg = &Frame{}
+	l.currentImg = &Frame{Gray16: image.NewGray16(image.Rect(0, 0, 80, 60))}
 	for {
 		// TODO(maruel): Fail after N errors?
 		// TODO(maruel): Skip 2 frames since they'll be the same data so no need
@@ -238,7 +242,7 @@ func (l *lepton) ReadImg() *Frame {
 		if l.currentImg.Metadata.FFCDesired == true {
 			//go l.TriggerFFC()
 		}
-		if l.previousImg == nil || !l.previousImg.Equal(l.currentImg) {
+		if l.previousImg == nil || !gray14.Equal(l.previousImg.Gray16, l.currentImg.Gray16) {
 			l.stats.GoodFrames++
 			break
 		}
@@ -365,9 +369,8 @@ func (l *lepton) readLine() {
 		//   copy(l.currentImg.Pix[(imgLine-3)*80:], l.packet[4:])
 		// I think that the following would be slower, needs to be tested:
 		//   binary.Read(bytes.NewBuffer(l.packet[4:]), binary.BigEndian, l.currentImg.Pix[base:])
-		base := imgLine * 80
 		for x := 0; x < 80; x++ {
-			l.currentImg.Pix[base+x] = binary.BigEndian.Uint16(l.packet[2*x+4:])
+			l.currentImg.SetGray16(x, imgLine, color.Gray16{binary.BigEndian.Uint16(l.packet[2*x+4:])})
 		}
 	} else if telemetryLine != -1 {
 		l.parseTelemetry(telemetryLine)

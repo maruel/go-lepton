@@ -5,6 +5,8 @@
 package lepton
 
 import (
+	"image"
+	"image/color"
 	"math/rand"
 	"time"
 )
@@ -43,8 +45,8 @@ func (n *noise) update() {
 func (n *noise) render(f *Frame) {
 	avg := int32(0)
 	dynamicRange := 128
+	// TODO(maruel): Stop using float64.
 	for y := 0; y < 60; y++ {
-		base := y * 80
 		fy := float64(y)
 		for x := 0; x < 80; x++ {
 			fx := float64(x)
@@ -59,9 +61,8 @@ func (n *noise) render(f *Frame) {
 			if value < float64(8192-dynamicRange) {
 				value = float64(8192 - dynamicRange)
 			}
-			v := uint16(value)
-			f.Pix[base+x] = v
-			avg += int32(v)
+			f.SetGray16(x, y, color.Gray16{uint16(value)})
+			avg += int32(value)
 		}
 	}
 	f.Metadata.AverageValue = uint16(avg / (80 * 60))
@@ -75,14 +76,14 @@ type fakeLepton struct {
 }
 
 func MakeFakeLepton(path string, speed int) (Lepton, error) {
-	last := &Frame{}
+	last := &Frame{Gray16: image.NewGray16(image.Rect(0, 0, 80, 60))}
 	return &fakeLepton{noise: makeNoise(), last: last, start: time.Now().UTC()}, nil
 }
 
 func (f *fakeLepton) ReadImg() *Frame {
 	// ~9hz
 	time.Sleep(111 * time.Millisecond)
-	fr := &Frame{}
+	fr := &Frame{Gray16: image.NewGray16(image.Rect(0, 0, 80, 60))}
 	fr.Metadata.FrameCount = f.last.Metadata.FrameCount + 1
 	fr.Metadata.Temperature = CentiC(30300)
 	f.noise.update()
