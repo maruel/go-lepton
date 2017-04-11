@@ -13,12 +13,14 @@ import (
 )
 
 // Min returns the lowest intensity pixel of the image.
+//
+// Ignores pixels of less than 100 in intensity.
 func Min(i *image.Gray16) uint16 {
 	out := uint16(0xffff)
 	b := i.Bounds()
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		for x := b.Min.X; x < b.Max.X; x++ {
-			if j := i.Gray16At(x, y).Y; j < out {
+			if j := i.Gray16At(x, y).Y; j >= 100 && j < out {
 				out = j
 			}
 		}

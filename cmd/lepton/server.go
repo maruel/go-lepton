@@ -91,8 +91,9 @@ func (s *WebServer) stream(w *websocket.Conn) {
 		for ; !interrupt.IsSet() && err == nil && lastIndex != s.lastIndex; lastIndex = (lastIndex + 1) % len(s.images) {
 			// For each frame, sends metadata, then raw image, all as a single packet.
 			img := s.images[s.lastIndex]
-			// Do the actual I/O without the lock.
-			s.cond.L.Unlock()
+			// OMG
+			//// Do the actual I/O without the lock.
+			//s.cond.L.Unlock()
 
 			// Note: time.Duration and CentiC are sent as raw, which is less nice
 			// but easier to process.
@@ -114,8 +115,9 @@ func (s *WebServer) stream(w *websocket.Conn) {
 			}
 			buf.Reset()
 
-			// To break out of the loop, the lock must be held.
-			s.cond.L.Lock()
+			// OMG
+			//// To break out of the loop, the lock must be held.
+			//s.cond.L.Lock()
 		}
 	}
 	if err == nil {
