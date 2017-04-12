@@ -18,6 +18,7 @@ import (
 
 func mainImpl() error {
 	i2cName := flag.String("i2c", "", "I²C bus to use")
+	i2cHz := flag.Int("hz", 0, "I²C bus speed")
 	ffc := flag.Bool("ffc", false, "trigger FFC")
 	flag.Parse()
 
@@ -33,6 +34,11 @@ func mainImpl() error {
 		return err
 	}
 	defer i2cBus.Close()
+	if *i2cHz != 0 {
+		if err := i2cBus.SetSpeed(int64(*i2cHz)); err != nil {
+			return err
+		}
+	}
 	dev, err := cci.New(i2cBus)
 	if err != nil {
 		return err
