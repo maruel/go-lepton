@@ -14,7 +14,7 @@ import (
 func TestNew(t *testing.T) {
 	i := i2ctest.Record{}
 	s := spitest.Record{}
-	_, err := New(&s, &i)
+	_, err := New(&s, &i, nil)
 	if err == nil {
 		t.Fatal("implement CS")
 	}

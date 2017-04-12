@@ -17,6 +17,8 @@ import (
 
 	"github.com/maruel/go-lepton/gray14"
 	"github.com/maruel/go-lepton/lepton"
+	"periph.io/x/periph/conn/gpio"
+	"periph.io/x/periph/conn/gpio/gpioreg"
 	"periph.io/x/periph/conn/i2c/i2creg"
 	"periph.io/x/periph/conn/spi/spireg"
 	"periph.io/x/periph/host"
@@ -25,6 +27,7 @@ import (
 func mainImpl() error {
 	i2cName := flag.String("i2c", "", "I²C bus to use")
 	spiName := flag.String("spi", "", "SPI bus to use")
+	csName := flag.String("cs", "", "SPI CS line to use instead of the default")
 	i2cHz := flag.Int("i2chz", 0, "I²C bus speed")
 	spiHz := flag.Int("spihz", 0, "SPI bus speed")
 	agc := flag.Bool("agc", false, "Save a 8 bit PNG instead of the default 16 bits")
@@ -53,6 +56,14 @@ func mainImpl() error {
 			return err
 		}
 	}
+	var cs gpio.PinOut
+	if len(*csName) != 0 {
+		if p := gpioreg.ByName(*csName); p != nil {
+			cs = p
+		} else {
+			return fmt.Errorf("%s is not a valid pin", *csName)
+		}
+	}
 
 	i2cBus, err := i2creg.Open(*i2cName)
 	if err != nil {
@@ -64,7 +75,7 @@ func mainImpl() error {
 			return err
 		}
 	}
-	dev, err := lepton.New(spiBus, i2cBus)
+	dev, err := lepton.New(spiBus, i2cBus, cs)
 	if err != nil {
 		return fmt.Errorf("%s\nIf testing without hardware, use -fake to simulate a camera", err)
 	}

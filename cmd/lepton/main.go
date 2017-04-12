@@ -97,7 +97,7 @@ func mainImpl() error {
 			return err
 		}
 		defer i2cBus.Close()
-		if dev, err = lepton.New(spiBus, i2cBus); err != nil {
+		if dev, err = lepton.New(spiBus, i2cBus, nil); err != nil {
 			return fmt.Errorf("%s\nIf testing without hardware, use -fake to simulate a camera", err)
 		}
 	} else if dev, err = leptontest.New(); err != nil {

@@ -111,25 +111,34 @@ type Dev struct {
 
 // New returns an initialized connection to the FLIR Lepton.
 //
-// Maximum SPI speed is 20Mhz. Minimum usable rate is ~2.2Mhz to
-// sustain 9hz framerate at 80x60.
+// The CS line is manually managed by using mode spi.NoCS when calling
+// DevParams(). In this case pass nil for the cs parameter. Some spidev drivers
+// refuse spi.NoCS, they do not implement proper support to not trigger the CS
+// line so a manual CS (really, any GPIO pin) must be used instead.
+//
+// Maximum SPI speed is 20Mhz. Minimum usable rate is ~2.2Mhz to sustain a 9hz
+// framerate at 80x60.
 //
 // Maximum I²C speed is 1Mhz.
 //
 // MOSI is not used and should be grounded.
-func New(s spi.Conn, i i2c.Bus) (*Dev, error) {
+func New(s spi.Conn, i i2c.Bus, cs gpio.PinOut) (*Dev, error) {
 	// Sadly the Lepton will inconditionally send 27fps, even if the effective
 	// rate is 9fps.
-	// Query the CS pin before disabling it.
-	p, ok := s.(spi.Pins)
-	if !ok {
-		return nil, errors.New("lepton: require manual access to the CS pin")
+	mode := spi.Mode3
+	if cs == nil {
+		// Query the CS pin before disabling it.
+		p, ok := s.(spi.Pins)
+		if !ok {
+			return nil, errors.New("lepton: require manual access to the CS pin")
+		}
+		cs = p.CS()
+		if cs == gpio.INVALID {
+			return nil, errors.New("lepton: require manual access to a valid CS pin")
+		}
+		mode |= spi.NoCS
 	}
-	cs := p.CS()
-	if cs == gpio.INVALID {
-		return nil, errors.New("lepton: require manual access to a valid CS pin")
-	}
-	if err := s.DevParams(20000000, spi.Mode3|spi.NoCS, 8); err != nil {
+	if err := s.DevParams(20000000, mode, 8); err != nil {
 		return nil, err
 	}
 	c, err := cci.New(i)
