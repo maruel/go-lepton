@@ -210,7 +210,7 @@ func (d *Dev) ReadImg() (*Frame, error) {
 
 // stream reads continuously from the SPI connection.
 func (d *Dev) stream(done <-chan struct{}, c chan<- []byte) error {
-	lines := d.frameLines * 2
+	lines := 8
 	if d.maxTxSize != 0 {
 		if l := d.maxTxSize / d.frameWidth; l < lines {
 			lines = l
@@ -403,7 +403,7 @@ const (
 	//   0xDCD0FFFF
 	//   0xFFDCFFFF
 	statusFFCDesired    uint32 = 1 << 3                                                                                   // 0x00000008
-	statusFFCStateMask  uint32 = 1<<4 | 1<<5                                                                              // 0x00000030
+	statusFFCStateMask  uint32 = 3 << 4                                                                                   // 0x00000030
 	statusFFCStateShift uint32 = 4                                                                                        //
 	statusReserved      uint32 = 1 << 11                                                                                  // 0x00000800
 	statusAGCState      uint32 = 1 << 12                                                                                  // 0x00001000
