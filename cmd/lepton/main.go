@@ -11,45 +11,14 @@ import (
 	"log"
 	"os"
 	"runtime/pprof"
-	"time"
 
-	"periph.io/x/periph/conn/i2c/i2creg"
-	"periph.io/x/periph/conn/spi/spireg"
-	"periph.io/x/periph/host"
-
-	"github.com/maruel/go-lepton/lepton"
 	"github.com/maruel/go-lepton/leptontest"
 	"github.com/maruel/interrupt"
+	"periph.io/x/periph/conn/i2c/i2creg"
+	"periph.io/x/periph/conn/spi/spireg"
+	"periph.io/x/periph/devices/lepton"
+	"periph.io/x/periph/host"
 )
-
-func printStats(dev leptontest.Lepton, s *Seeder, noCR bool) {
-	started := time.Now()
-	format := "\rframes: %d good %d duped; lines: %d good %d discard %d badsync %d broken; %d fail %d resets; %d HTTP %d Imgs %.1fs"
-	if noCR {
-		format = format[1:] + "\n"
-	}
-	for !interrupt.IsSet() {
-		leptonStats := dev.Stats()
-		var seederStats SeederStats
-		if s != nil {
-			seederStats = s.Stats()
-		}
-		duration := time.Now().Sub(started)
-		fmt.Printf(
-			format,
-			leptonStats.GoodFrames, leptonStats.DuplicateFrames,
-			leptonStats.GoodLines, leptonStats.DiscardLines, leptonStats.BadSyncLines,
-			leptonStats.BrokenLines, leptonStats.TransferFails, leptonStats.Resets,
-			seederStats.HTTPReqs, seederStats.ImgsSent,
-			duration.Seconds())
-		if noCR {
-			time.Sleep(2 * time.Second)
-		} else {
-			time.Sleep(time.Second)
-		}
-	}
-	fmt.Print("\n")
-}
 
 func mainImpl() error {
 	cpuprofile := flag.String("cpuprofile", "", "dump CPU profile in file")
@@ -137,19 +106,17 @@ func mainImpl() error {
 			w.AddImg(<-c)
 		}
 	}()
-
 	if d != nil {
 		go s.sendImages(d)
 	}
 
 	fmt.Printf("\n")
-	printStats(dev, s, *verbose)
-	return nil
+	return watchFile()
 }
 
 func main() {
 	if err := mainImpl(); err != nil {
-		fmt.Fprintf(os.Stderr, "\ngo-lepton: %s.\n", err)
+		fmt.Fprintf(os.Stderr, "\nlepton: %s.\n", err)
 		os.Exit(1)
 	}
 }

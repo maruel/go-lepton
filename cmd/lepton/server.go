@@ -14,15 +14,14 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	//"image/png"
 	"log"
 	"net"
 	"net/http"
 	"sync"
 
-	"github.com/maruel/go-lepton/lepton"
 	"github.com/maruel/interrupt"
 	"golang.org/x/net/websocket"
+	"periph.io/x/periph/devices/lepton"
 )
 
 type WebServer struct {
@@ -80,12 +79,21 @@ func (s *WebServer) favicon(w http.ResponseWriter, r *http.Request) {
 // stream sends all images as PseudoRGB as WebSocket frames.
 func (s *WebServer) stream(w *websocket.Conn) {
 	log.Printf("websocket %s", w.Config().Origin)
-	defer w.Close()
+	//w.PayloadType = websocket.BinaryFrame
+	w.PayloadType = websocket.TextFrame
+	var err error
+	defer func() {
+		w.Close()
+		if err == nil {
+			log.Printf("websocket %s closed", w.Config().Origin)
+		} else {
+			log.Printf("websocket %s closed: %s", w.Config().Origin, err)
+		}
+	}()
 	lastIndex := 0
-	buf := &bytes.Buffer{}
+	buf := bytes.Buffer{}
 	s.cond.L.Lock()
 	defer s.cond.L.Unlock()
-	var err error
 	for !interrupt.IsSet() && err == nil {
 		s.cond.Wait()
 		for ; !interrupt.IsSet() && err == nil && lastIndex != s.lastIndex; lastIndex = (lastIndex + 1) % len(s.images) {
@@ -97,21 +105,23 @@ func (s *WebServer) stream(w *websocket.Conn) {
 
 			// Note: time.Duration and CentiC are sent as raw, which is less nice
 			// but easier to process.
-			err = json.NewEncoder(buf).Encode(&img.Metadata)
-			if err == nil {
-				buf.Write([]byte("\n"))
-				encoder := base64.NewEncoder(base64.StdEncoding, buf)
+			if img != nil {
+				err = json.NewEncoder(&buf).Encode(&img.Metadata)
+				if err == nil {
+					buf.Write([]byte("\n"))
+					encoder := base64.NewEncoder(base64.StdEncoding, &buf)
 
-				// Write the uint16 raw data as-is, encoded in base64.
-				binary.Write(encoder, binary.LittleEndian, img.Pix)
+					// Write the uint16 raw data as-is, encoded in base64.
+					binary.Write(encoder, binary.LittleEndian, img.Pix)
 
-				// Write the data as AGC'ed to 8 bits encoded in PNG.
-				//err = png.Encode(encoder, img.AGCRGBLinear())
+					// Write the data as AGC'ed to 8 bits encoded in PNG.
+					//err = png.Encode(encoder, img.AGCRGBLinear())
 
-				encoder.Close()
-			}
-			if err == nil {
-				_, err = w.Write(buf.Bytes())
+					encoder.Close()
+				}
+				if err == nil {
+					_, err = w.Write(buf.Bytes())
+				}
 			}
 			buf.Reset()
 
@@ -120,17 +130,12 @@ func (s *WebServer) stream(w *websocket.Conn) {
 			//s.cond.L.Lock()
 		}
 	}
-	if err == nil {
-		log.Printf("websocket %s closed", w.Config().Origin)
-	} else {
-		log.Printf("websocket %s closed: %s", w.Config().Origin, err)
-	}
 }
 
 // Private details.
 
 type loggingHandler struct {
-	handler http.Handler
+	http.Handler
 }
 
 type loggingResponseWriter struct {
@@ -159,6 +164,8 @@ func (l *loggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 // ServeHTTP logs each HTTP request if -verbose is passed.
 func (l loggingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	lrw := &loggingResponseWriter{ResponseWriter: w}
-	l.handler.ServeHTTP(lrw, r)
-	log.Printf("%s - %3d %6db %4s %s\n", r.RemoteAddr, lrw.status, lrw.length, r.Method, r.RequestURI)
+	defer func() {
+		log.Printf("%s - %3d %6db %4s %s\n", r.RemoteAddr, lrw.status, lrw.length, r.Method, r.RequestURI)
+	}()
+	l.Handler.ServeHTTP(lrw, r)
 }

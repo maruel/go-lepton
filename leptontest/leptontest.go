@@ -12,9 +12,8 @@ import (
 	"time"
 
 	"periph.io/x/periph/devices"
-
-	"github.com/maruel/go-lepton/lepton"
-	"github.com/maruel/go-lepton/lepton/cci"
+	"periph.io/x/periph/devices/lepton"
+	"periph.io/x/periph/devices/lepton/cci"
 )
 
 // Lepton reads and controls a FLIR Lepton. This interface can be mocked.
@@ -27,7 +26,6 @@ type Lepton interface {
 	GetTempHousing() (devices.Celsius, error)
 	GetUptime() (time.Duration, error)
 	ReadImg() (*lepton.Frame, error)
-	Stats() lepton.Stats
 	RunFFC() error
 }
 
@@ -36,7 +34,6 @@ type LeptonFake struct {
 	noise *noise
 	last  *lepton.Frame
 	start time.Time
-	stats lepton.Stats
 }
 
 // New returns a mock for lepton.Lepton.
@@ -54,7 +51,6 @@ func (l *LeptonFake) ReadImg() (*lepton.Frame, error) {
 	l.noise.update()
 	l.noise.render(fr)
 	l.last = fr
-	l.stats.GoodFrames++
 	return fr, nil
 }
 
@@ -88,10 +84,6 @@ func (l *LeptonFake) GetShutterPos() (cci.ShutterPos, error) {
 
 func (l *LeptonFake) GetFFCModeControl() (*cci.FFCMode, error) {
 	return &cci.FFCMode{}, nil
-}
-
-func (l *LeptonFake) Stats() lepton.Stats {
-	return l.stats
 }
 
 func (l *LeptonFake) RunFFC() error {

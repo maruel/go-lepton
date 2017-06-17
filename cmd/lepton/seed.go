@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/maruel/go-lepton/appengine/seeall/api"
-	"github.com/maruel/go-lepton/lepton"
 	"github.com/maruel/interrupt"
+	"periph.io/x/periph/devices/lepton"
 )
 
 type Seeder struct {
