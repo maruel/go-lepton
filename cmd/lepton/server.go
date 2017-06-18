@@ -8,18 +8,17 @@ package main
 //go:generate go run package/main.go
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"sync"
 
 	"github.com/maruel/interrupt"
+	"github.com/maruel/serve-dir/loghttp"
 	"golang.org/x/net/websocket"
 	"periph.io/x/periph/devices/lepton"
 )
@@ -49,7 +48,7 @@ func StartWebServer(port int) *WebServer {
 	mux.HandleFunc("/favicon.ico", w.favicon)
 	mux.Handle("/stream", websocket.Handler(w.stream))
 	fmt.Printf("Listening on %d\n", port)
-	go http.ListenAndServe(fmt.Sprintf(":%d", port), loggingHandler{mux})
+	go http.ListenAndServe(fmt.Sprintf(":%d", port), &loghttp.Handler{Handler: mux})
 	go func() {
 		<-interrupt.Channel
 		w.cond.Broadcast()
@@ -136,36 +135,4 @@ func (s *WebServer) stream(w *websocket.Conn) {
 
 type loggingHandler struct {
 	http.Handler
-}
-
-type loggingResponseWriter struct {
-	http.ResponseWriter
-	length int
-	status int
-}
-
-func (l *loggingResponseWriter) Write(data []byte) (size int, err error) {
-	size, err = l.ResponseWriter.Write(data)
-	l.length += size
-	return
-}
-
-func (l *loggingResponseWriter) WriteHeader(status int) {
-	l.ResponseWriter.WriteHeader(status)
-	l.status = status
-}
-
-// Hijack is needed for websocket.
-func (l *loggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	h := l.ResponseWriter.(http.Hijacker)
-	return h.Hijack()
-}
-
-// ServeHTTP logs each HTTP request if -verbose is passed.
-func (l loggingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	lrw := &loggingResponseWriter{ResponseWriter: w}
-	defer func() {
-		log.Printf("%s - %3d %6db %4s %s\n", r.RemoteAddr, lrw.status, lrw.length, r.Method, r.RequestURI)
-	}()
-	l.Handler.ServeHTTP(lrw, r)
 }
