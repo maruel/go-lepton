@@ -130,9 +130,3 @@ func (s *WebServer) stream(w *websocket.Conn) {
 		}
 	}
 }
-
-// Private details.
-
-type loggingHandler struct {
-	http.Handler
-}
