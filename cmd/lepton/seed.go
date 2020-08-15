@@ -8,16 +8,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"image/png"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"os/user"
 	"path/filepath"
-	"time"
 
-	"github.com/maruel/go-lepton/appengine/seeall/api"
+	// "github.com/maruel/go-lepton/appengine/seeall/api"
 	"github.com/maruel/interrupt"
 	"periph.io/x/periph/devices/lepton"
 )
@@ -81,32 +79,34 @@ func (s *Seeder) sendImages(c <-chan *lepton.Frame) {
 }
 
 func (s *Seeder) sendImgs(client *http.Client, imgs []*lepton.Frame) {
-	req := &api.PushRequest{
-		ID:     s.config.ID,
-		Secret: s.config.Secret,
-		Items:  make([]api.PushRequestItem, len(imgs)),
-	}
-	now := time.Now().UTC()
-	var w bytes.Buffer
-	for i, img := range imgs {
-		if err := png.Encode(&w, img); err != nil {
+	/*
+		req := &api.PushRequest{
+			ID:     s.config.ID,
+			Secret: s.config.Secret,
+			Items:  make([]api.PushRequestItem, len(imgs)),
+		}
+		now := time.Now().UTC()
+		var w bytes.Buffer
+		for i, img := range imgs {
+			if err := png.Encode(&w, img); err != nil {
+				panic(err)
+			}
+			req.Items[i].Timestamp = now
+			req.Items[i].PNG = w.Bytes()
+			w.Reset()
+		}
+		if err := json.NewEncoder(&w).Encode(req); err != nil {
 			panic(err)
 		}
-		req.Items[i].Timestamp = now
-		req.Items[i].PNG = w.Bytes()
-		w.Reset()
-	}
-	if err := json.NewEncoder(&w).Encode(req); err != nil {
-		panic(err)
-	}
-	url := "https://" + s.config.Server + "/api/seeall/v1/push"
-	resp, err := http.Post(url, "application/json", &w)
-	if err != nil {
-		log.Printf("Failed to post image: %s", err)
-	} else {
-		// TODO(maruel): Read response.
-		resp.Body.Close()
-	}
+		url := "https://" + s.config.Server + "/api/seeall/v1/push"
+		resp, err := http.Post(url, "application/json", &w)
+		if err != nil {
+			log.Printf("Failed to post image: %s", err)
+		} else {
+			// TODO(maruel): Read response.
+			resp.Body.Close()
+		}
+	*/
 }
 
 // LoadSeeder loads ~/.config/lepton/lepton.json or create one if none exists.

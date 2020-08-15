@@ -17,6 +17,7 @@ import (
 	"periph.io/x/periph/conn/i2c/i2creg"
 	"periph.io/x/periph/conn/spi/spireg"
 	"periph.io/x/periph/devices/lepton"
+	"periph.io/x/periph/devices/lepton/image14bit"
 	"periph.io/x/periph/host"
 )
 
@@ -66,7 +67,7 @@ func mainImpl() error {
 			return err
 		}
 		defer i2cBus.Close()
-		if dev, err = lepton.New(spiBus, i2cBus, nil); err != nil {
+		if dev, err = lepton.New(spiBus, i2cBus); err != nil {
 			return fmt.Errorf("%s\nIf testing without hardware, use -fake to simulate a camera", err)
 		}
 	} else if dev, err = leptontest.New(); err != nil {
@@ -88,13 +89,14 @@ func mainImpl() error {
 	go func() {
 		for {
 			// Keep this loop busy to not lose sync on SPI.
-			b, err := dev.ReadImg()
-			if err != nil {
+			b := image14bit.NewGray14(dev.Bounds())
+			f := &lepton.Frame{Gray14: b}
+			if err := dev.NextFrame(f); err != nil {
 				log.Printf("%v", err)
 			}
-			c <- b
+			c <- f
 			if d != nil {
-				d <- b
+				d <- f
 			}
 		}
 	}()

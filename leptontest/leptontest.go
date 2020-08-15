@@ -7,13 +7,13 @@ package leptontest
 
 import (
 	"image"
-	"image/color"
 	"math/rand"
 	"time"
 
-	"periph.io/x/periph/devices"
+	"periph.io/x/periph/conn/physic"
 	"periph.io/x/periph/devices/lepton"
 	"periph.io/x/periph/devices/lepton/cci"
+	"periph.io/x/periph/devices/lepton/image14bit"
 )
 
 // Lepton reads and controls a FLIR Lepton. This interface can be mocked.
@@ -22,10 +22,11 @@ type Lepton interface {
 	GetSerial() (uint64, error)
 	GetShutterPos() (cci.ShutterPos, error)
 	GetStatus() (*cci.Status, error)
-	GetTemp() (devices.Celsius, error)
-	GetTempHousing() (devices.Celsius, error)
+	GetTemp() (physic.Temperature, error)
+	GetTempHousing() (physic.Temperature, error)
 	GetUptime() (time.Duration, error)
-	ReadImg() (*lepton.Frame, error)
+	NextFrame(img *lepton.Frame) error
+	Bounds() image.Rectangle
 	RunFFC() error
 }
 
@@ -38,20 +39,23 @@ type LeptonFake struct {
 
 // New returns a mock for lepton.Lepton.
 func New() (*LeptonFake, error) {
-	last := &lepton.Frame{Gray16: image.NewGray16(image.Rect(0, 0, 80, 60))}
+	last := &lepton.Frame{Gray14: image14bit.NewGray14(image.Rect(0, 0, 80, 60))}
 	return &LeptonFake{noise: makeNoise(), last: last, start: time.Now().UTC()}, nil
 }
 
-func (l *LeptonFake) ReadImg() (*lepton.Frame, error) {
+func (l *LeptonFake) NextFrame(img *lepton.Frame) error {
 	// ~9hz
 	time.Sleep(111 * time.Millisecond)
-	fr := &lepton.Frame{Gray16: image.NewGray16(image.Rect(0, 0, 80, 60))}
-	fr.Metadata.FrameCount = l.last.Metadata.FrameCount + 1
-	fr.Metadata.Temp = devices.Celsius(303000)
+	img.Metadata.FrameCount = l.last.Metadata.FrameCount + 1
+	img.Metadata.Temp = physic.ZeroCelsius
 	l.noise.update()
-	l.noise.render(fr)
-	l.last = fr
-	return fr, nil
+	l.noise.render(img)
+	l.last = img
+	return nil
+}
+
+func (l *LeptonFake) Bounds() image.Rectangle {
+	return image.Rect(0, 0, 80, 60)
 }
 
 func (l *LeptonFake) Close() error {
@@ -70,12 +74,12 @@ func (l *LeptonFake) GetUptime() (time.Duration, error) {
 	return time.Now().UTC().Sub(l.start), nil
 }
 
-func (l *LeptonFake) GetTemp() (devices.Celsius, error) {
-	return devices.Celsius(303000), nil
+func (l *LeptonFake) GetTemp() (physic.Temperature, error) {
+	return physic.Celsius + physic.ZeroCelsius, nil
 }
 
-func (l *LeptonFake) GetTempHousing() (devices.Celsius, error) {
-	return devices.Celsius(300000), nil
+func (l *LeptonFake) GetTempHousing() (physic.Temperature, error) {
+	return physic.ZeroCelsius, nil
 }
 
 func (l *LeptonFake) GetShutterPos() (cci.ShutterPos, error) {
@@ -142,7 +146,7 @@ func (n *noise) render(f *lepton.Frame) {
 			if value < float64(8192-dynamicRange) {
 				value = float64(8192 - dynamicRange)
 			}
-			f.SetGray16(x, y, color.Gray16{uint16(value)})
+			f.SetIntensity14(x, y, image14bit.Intensity14(value))
 			avg += int32(value)
 		}
 	}
